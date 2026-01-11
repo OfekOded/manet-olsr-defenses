@@ -59,6 +59,8 @@ public:
   virtual void OnNeighborForwardedPacket(Mac48Address transmitter,
                                          Mac48Address receiver, Ptr<const Packet> packet) = 0;
 
+  virtual void OnQueueStatusReport(uint32_t size, uint32_t capacity) = 0;
+
   virtual void PeriodicCheck() = 0;
 };
 
@@ -85,6 +87,7 @@ public:
   virtual void OnDataPacketDropped(Ptr<const Packet>, Ipv4Address, Ipv4Address, DropReason) override {}
 
   virtual void OnNeighborForwardedPacket(Mac48Address transmitter, Mac48Address receiver, Ptr<const Packet> packet) override {}
+  virtual void OnQueueStatusReport(uint32_t size, uint32_t capacity) override {}
   virtual void PeriodicCheck() override {}
 };
 

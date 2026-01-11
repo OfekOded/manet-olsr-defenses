@@ -51,6 +51,9 @@
 #include "ns3/llc-snap-header.h"
 #include "ns3/pointer.h"
 #include "ns3/node.h"
+#include "ns3/queue-disc.h"
+#include "ns3/traffic-control-layer.h"
+
 
 #include <iomanip>
 #include <iostream>
@@ -3461,6 +3464,45 @@ RoutingProtocol::HandleDefenseTimer()
     {
         m_defenseStrategy->PeriodicCheck();
         m_defenseTimer.Schedule(Seconds(1.0));
+
+        Ptr<Node> node = GetObject<Node>();
+        if (node)
+        {
+            uint32_t nDevices = node->GetNDevices();
+            for (uint32_t i = 0; i < nDevices; ++i)
+            {
+                Ptr<NetDevice> dev = node->GetDevice(i);
+                if (!dev)
+                {
+                    continue;
+                }
+
+                Ptr<WifiNetDevice> wifiDev = dev->GetObject<WifiNetDevice>();
+                if (!wifiDev)
+                {
+                    continue;
+                }
+
+                Ptr<TrafficControlLayer> tc = node->GetObject<TrafficControlLayer>();
+                if (!tc)
+                {
+                    continue;
+                }
+
+                Ptr<QueueDisc> qd = tc->GetRootQueueDiscOnDevice(dev);
+                if (!qd)
+                {
+                    continue;
+                }
+
+                uint32_t qSize = qd->GetNPackets();
+                uint32_t qCap = qd->GetMaxSize().GetValue();
+
+                m_defenseStrategy->OnQueueStatusReport(qSize, qCap);
+
+                break; 
+            }
+        }
     }
 }
 
