@@ -2,16 +2,32 @@ build_lib(
   LIBNAME olsr
   SOURCE_FILES
     helper/olsr-helper.cc
+    model/olsr-defense-strategy.cc 
+    model/olsr-defense-sanity-check.cc
+    model/olsr-defense-tc-check.cc
+    model/olsr-defense-flood-check.cc
+    model/olsr-defense-degree-check.cc
+    model/olsr-defense-full-coverage.cc
+    model/watchdog-defense.cc
     model/olsr-header.cc
     model/olsr-routing-protocol.cc
     model/olsr-state.cc
   HEADER_FILES
     helper/olsr-helper.h
+    model/olsr-defense-strategy.h  
+    model/olsr-defense-full-coverage.h
+    model/olsr-defense-sanity-check.h
+    model/watchdog-defense.h
+    model/olsr-defense-flood-check.h
+    model/olsr-defense-degree-check.h
+    model/olsr-defense-tc-check.h
     model/olsr-header.h
     model/olsr-repositories.h
     model/olsr-routing-protocol.h
     model/olsr-state.h
-  LIBRARIES_TO_LINK ${libinternet}
+  LIBRARIES_TO_LINK 
+    ${libinternet}
+    ${libwifi}
   TEST_SOURCES
     test/regression-test-suite.cc
     test/bug780-test.cc
