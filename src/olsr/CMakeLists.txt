@@ -3,14 +3,14 @@ build_lib(
   SOURCE_FILES
     helper/olsr-helper.cc
     model/olsr-defense-strategy.cc 
+    model/olsr-defense-fpnt.cc
     model/olsr-header.cc
     model/olsr-routing-protocol.cc
-    model/olsr-defense-debug.cc
     model/olsr-state.cc
   HEADER_FILES
     helper/olsr-helper.h
-    model/olsr-defense-debug.h
     model/olsr-defense-strategy.h  
+    model/olsr-defense-fpnt.h
     model/olsr-header.h
     model/olsr-repositories.h
     model/olsr-routing-protocol.h

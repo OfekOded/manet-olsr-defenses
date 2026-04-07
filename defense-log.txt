@@ -1,0 +1,20 @@
+
+================================================
+               SIMULATION REPORT                
+================================================
+--- Configuration ---
+Topology Mode    : SCENARIO (5 Custom Flows)
+WiFi Manager     : RangePropagation (Max=250m)
+Nodes            : 45
+Attack Enabled   : YES
+ > Malicious Node: 0
+ > Spoof Count   : 0
+Defense Enabled  : NO
+
+--- Flow Monitor Results ---
+Total Tx Packets     : 5389
+Total Rx Packets     : 5389
+Aggregate Throughput : 0.116402 Mbps
+Packet Delivery Ratio: 100 %
+Average End-to-End Delay: 0.00304258 s
+================================================

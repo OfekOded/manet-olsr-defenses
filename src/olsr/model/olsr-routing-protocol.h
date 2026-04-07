@@ -33,6 +33,8 @@
 #include "ns3/wifi-phy.h"
 #include "ns3/wifi-mac-header.h"
 #include "ns3/wifi-net-device.h"
+#include "ns3/wifi-mac.h"
+#include "ns3/wifi-mpdu.h"
 
 #include "olsr-defense-strategy.h"
 
@@ -317,6 +319,8 @@ class RoutingProtocol : public Ipv4RoutingProtocol
     */
     Ptr<OlsrDefenseStrategy> m_defenseStrategy;
 
+    void MacTxDrop(std::string context, ns3::WifiMacDropReason reason, ns3::Ptr<const ns3::WifiMpdu> mpdu);
+
     // ======================================================================
     
     /**
@@ -421,8 +425,6 @@ class RoutingProtocol : public Ipv4RoutingProtocol
     // ======================================================================
     // SECURITY RESEARCH EXTENSION: 
     // ======================================================================
-    void ProcessPromiscPacket (Ptr<const Packet> packet);
-
     void HandleDefenseTimer();
     Timer m_defenseTimer;
 
@@ -430,7 +432,7 @@ class RoutingProtocol : public Ipv4RoutingProtocol
    * \brief Trace callback to sniff neighbor traffic at the PHY layer.
    * Matches signature: ns3::WifiPhy::MonitorSnifferRxCallback
    */
-  void MonitorSnifferRx (Ptr<const Packet> packet, 
+    void MonitorSnifferRx (Ptr<const Packet> packet, 
                          uint16_t channelFreqMhz, 
                          WifiTxVector txVector, 
                          MpduInfo aMpdu, 
@@ -479,7 +481,7 @@ class RoutingProtocol : public Ipv4RoutingProtocol
      * @brief Creates the routing table of the node following \RFC{3626} hints.
      */
     void RoutingTableComputation();
-
+    
   public:
     /**
      * @brief Gets the main address associated with a given interface address.
@@ -487,6 +489,13 @@ class RoutingProtocol : public Ipv4RoutingProtocol
      * @return the corresponding main address.
      */
     Ipv4Address GetMainAddress(Ipv4Address iface_addr) const;
+
+        // --- FPNT-OLSR Extension ---
+    /**
+     * @brief Executes the Max-Min Trust Routing Algorithm (Algorithm 2).
+     * Replaces standard RoutingTableComputation when trust routing is enabled.
+     */
+    void RunTrustDijkstra();
 
   private:
     /**

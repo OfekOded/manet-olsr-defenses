@@ -1,0 +1,5 @@
+DEBUG SIMULATION RESULTS
+Attack: OFF | Defense: OFF
+Tx Packets: 244
+Rx Packets: 244
+PDR: 100%

@@ -1,0 +1,9 @@
+Node 10.1.1.3 detected as MALICIOUS (T=0.160784).
+Detected MAC TX Failure to 10.1.1.5. Incrementing Deviation Counter.
+Node 10.1.1.5 detected as MALICIOUS (T=0.0941176).
+Detected MAC TX Failure to 10.1.1.5. Incrementing Deviation Counter.
+DEBUG SIMULATION RESULTS
+Attack: ON | Defense: ON
+Tx Packets: 199
+Rx Packets: 0
+PDR: 0%

@@ -2,9 +2,9 @@ import random
 import os
 
 filename = "layout.txt"
-num_nodes = 50
-max_x = 150
-max_y = 150
+num_nodes = 25
+max_x = 10
+max_y = 10
 
 with open(filename, "w") as f:
     for _ in range(num_nodes):
