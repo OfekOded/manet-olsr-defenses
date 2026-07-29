@@ -1,3 +1,9 @@
+/*
+ * Copyright (c) 2024 NS-3 Security Extension Project
+ *
+ * Author: Oded Ofek <odedofek2@gmail.com>
+ */
+
 #include "olsr-defense-strategy.h"
 #include "ns3/log.h"
 
@@ -18,12 +24,6 @@ OlsrDefenseStrategy::GetTypeId(void)
   return tid;
 }
 
-void
-OlsrDefenseStrategy::DoDispose()
-{
-  Object::DoDispose();
-}
-
 TypeId
 OlsrDefenseNull::GetTypeId(void)
 {
@@ -34,5 +34,5 @@ OlsrDefenseNull::GetTypeId(void)
   return tid;
 }
 
-} 
-} 
+} // namespace olsr
+} // namespace ns3

@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) 2007 INESC Porto
+ *
+ * SPDX-License-Identifier: GPL-2.0-only
+ *
+ * Author: Gustavo J. A. M. Carneiro  <gjc@inescporto.pt>
+ */
+
 #ifndef OLSR_HEADER_H
 #define OLSR_HEADER_H
 
@@ -17,25 +25,6 @@ namespace olsr
 
 double EmfToSeconds(uint8_t emf);
 uint8_t SecondsToEmf(double seconds);
-
-/**
- * @brief Evaluation Vector for FPNT-OLSR Trust Propagation.
- *
- * Represents the Trust, Distrust, and Uncertainty values calculated
- * by the Fuzzy Petri Net. Values are quantized to uint8_t to minimize
- * packet overhead.
- */
-struct EvaluationVector
-{
-    uint8_t trust;      ///< Quantized Trust Value (p15)
-    uint8_t distrust;   ///< Quantized Distrust Value (p14)
-    uint8_t uncertain;  ///< Quantized Uncertainty Value
-    uint8_t reserved;   ///< Padding for 32-bit alignment
-
-    EvaluationVector() : trust(0), distrust(0), uncertain(0), reserved(0)
-    {
-    }
-};
 
 /**
  * @ingroup olsr
@@ -337,7 +326,7 @@ class MessageHeader : public Header
          * store a header into the byte buffer of a packet.
          *
          * @param start an iterator which points to where the header should
-         * be written.
+         *        be written.
          */
         void Serialize(Buffer::Iterator start) const;
         /**
@@ -345,7 +334,7 @@ class MessageHeader : public Header
          * re-create a header from the byte buffer of a packet.
          *
          * @param start an iterator which points to where the header should
-         * read from.
+         *        read from.
          * @param messageSize the message size.
          * @returns the number of bytes read.
          */
@@ -433,7 +422,7 @@ class MessageHeader : public Header
          * store a header into the byte buffer of a packet.
          *
          * @param start an iterator which points to where the header should
-         * be written.
+         *        be written.
          */
         void Serialize(Buffer::Iterator start) const;
         /**
@@ -441,7 +430,7 @@ class MessageHeader : public Header
          * re-create a header from the byte buffer of a packet.
          *
          * @param start an iterator which points to where the header should
-         * read from.
+         *        read from.
          * @param messageSize the message size.
          * @returns the number of bytes read.
          */
@@ -471,9 +460,6 @@ class MessageHeader : public Header
         std::vector<Ipv4Address> neighborAddresses; //!< Neighbor address container.
         uint16_t ansn;                              //!< Advertised Neighbor Sequence Number.
 
-        // FPNT-OLSR Extension
-        std::vector<EvaluationVector> evaluationVectors; //!< Trust vectors for neighbors.
-
         /**
          * This method is used to print the content of a Tc message.
          * @param os output stream
@@ -489,7 +475,7 @@ class MessageHeader : public Header
          * store a header into the byte buffer of a packet.
          *
          * @param start an iterator which points to where the header should
-         * be written.
+         *        be written.
          */
         void Serialize(Buffer::Iterator start) const;
         /**
@@ -497,7 +483,7 @@ class MessageHeader : public Header
          * re-create a header from the byte buffer of a packet.
          *
          * @param start an iterator which points to where the header should
-         * read from.
+         *        read from.
          * @param messageSize the message size.
          * @returns the number of bytes read.
          */
@@ -552,7 +538,7 @@ class MessageHeader : public Header
          * store a header into the byte buffer of a packet.
          *
          * @param start an iterator which points to where the header should
-         * be written.
+         *        be written.
          */
         void Serialize(Buffer::Iterator start) const;
         /**
@@ -560,7 +546,7 @@ class MessageHeader : public Header
          * re-create a header from the byte buffer of a packet.
          *
          * @param start an iterator which points to where the header should
-         * read from.
+         *        read from.
          * @param messageSize the message size.
          * @returns the number of bytes read.
          */

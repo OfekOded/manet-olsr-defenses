@@ -6,3 +6,5 @@
 !subdir/
 !scratch-simulator.cc
 !CMakeLists.txt
+!olsr-trust-eval-mitigation.cc
+!olsr_window_features.h

@@ -481,17 +481,7 @@ MessageHeader::Hello::Deserialize(Buffer::Iterator start, uint32_t messageSize)
 uint32_t
 MessageHeader::Tc::GetSerializedSize() const
 {
-    uint32_t size = 4; // ANSN + Reserved
-    size += this->neighborAddresses.size() * IPV4_ADDRESS_SIZE;
-
-    // Check if EVs are populated
-    if (!this->evaluationVectors.empty())
-    {
-        // Each EV is 4 bytes (trust, distrust, uncertain, reserved)
-        size += this->evaluationVectors.size() * 4;
-    }
-
-    return size;
+    return 4 + this->neighborAddresses.size() * IPV4_ADDRESS_SIZE;
 }
 
 void
@@ -513,18 +503,6 @@ MessageHeader::Tc::Print(std::ostream& os) const
         os << iAddr;
     }
     os << "]";
-
-    if (!evaluationVectors.empty())
-    {
-        os << " EVs: [";
-        first = true;
-        for (const auto& ev : evaluationVectors)
-        {
-            if (first) first = false; else os << ", ";
-            os << "{" << (int)ev.trust << "," << (int)ev.distrust << "," << (int)ev.uncertain << "}";
-        }
-        os << "]";
-    }
 }
 
 void
@@ -533,34 +511,11 @@ MessageHeader::Tc::Serialize(Buffer::Iterator start) const
     Buffer::Iterator i = start;
 
     i.WriteHtonU16(this->ansn);
-    
-    // Use Reserved field bit 0 to indicate presence of EVs
-    if (!this->evaluationVectors.empty())
-    {
-        i.WriteHtonU16(1); // Set flag
-    }
-    else
-    {
-        i.WriteHtonU16(0); // Reserved
-    }
+    i.WriteHtonU16(0); // Reserved
 
     for (auto iter = this->neighborAddresses.begin(); iter != this->neighborAddresses.end(); iter++)
     {
         i.WriteHtonU32(iter->Get());
-    }
-
-    // Write EVs if present
-    if (!this->evaluationVectors.empty())
-    {
-        NS_ASSERT_MSG(this->evaluationVectors.size() == this->neighborAddresses.size(),
-                      "EvaluationVector size mismatch");
-        for (const auto& ev : this->evaluationVectors)
-        {
-            i.WriteU8(ev.trust);
-            i.WriteU8(ev.distrust);
-            i.WriteU8(ev.uncertain);
-            i.WriteU8(0); // Reserved/Padding
-        }
     }
 }
 
@@ -570,45 +525,17 @@ MessageHeader::Tc::Deserialize(Buffer::Iterator start, uint32_t messageSize)
     Buffer::Iterator i = start;
 
     this->neighborAddresses.clear();
-    this->evaluationVectors.clear();
     NS_ASSERT(messageSize >= 4);
 
     this->ansn = i.ReadNtohU16();
-    uint16_t reserved = i.ReadNtohU16();
-    bool hasEvs = (reserved & 1); // Check flag
+    i.ReadNtohU16(); // Reserved
 
-    uint32_t payloadSize = messageSize - 4;
-    int numAddresses = 0;
-
-    if (hasEvs)
-    {
-        // If EVs are present, each entry is 8 bytes (4 bytes IP + 4 bytes EV)
-        NS_ASSERT(payloadSize % 8 == 0);
-        numAddresses = payloadSize / 8;
-    }
-    else
-    {
-        // Standard OLSR: Each entry is 4 bytes IP
-        NS_ASSERT(payloadSize % IPV4_ADDRESS_SIZE == 0);
-        numAddresses = payloadSize / IPV4_ADDRESS_SIZE;
-    }
-
+    NS_ASSERT((messageSize - 4) % IPV4_ADDRESS_SIZE == 0);
+    int numAddresses = (messageSize - 4) / IPV4_ADDRESS_SIZE;
+    this->neighborAddresses.clear();
     for (int n = 0; n < numAddresses; ++n)
     {
         this->neighborAddresses.emplace_back(i.ReadNtohU32());
-    }
-
-    if (hasEvs)
-    {
-        for (int n = 0; n < numAddresses; ++n)
-        {
-            EvaluationVector ev;
-            ev.trust = i.ReadU8();
-            ev.distrust = i.ReadU8();
-            ev.uncertain = i.ReadU8();
-            i.ReadU8(); // Padding
-            this->evaluationVectors.push_back(ev);
-        }
     }
 
     return messageSize;
