@@ -481,7 +481,17 @@ MessageHeader::Hello::Deserialize(Buffer::Iterator start, uint32_t messageSize)
 uint32_t
 MessageHeader::Tc::GetSerializedSize() const
 {
-    return 4 + this->neighborAddresses.size() * IPV4_ADDRESS_SIZE;
+    uint32_t size = 4; // ANSN + Reserved
+    size += this->neighborAddresses.size() * IPV4_ADDRESS_SIZE;
+
+    // Check if EVs are populated
+    if (!this->evaluationVectors.empty())
+    {
+        // Each EV is 4 bytes (trust, distrust, uncertain, reserved)
+        size += this->evaluationVectors.size() * 4;
+    }
+
+    return size;
 }
 
 void
@@ -503,6 +513,18 @@ MessageHeader::Tc::Print(std::ostream& os) const
         os << iAddr;
     }
     os << "]";
+
+    if (!evaluationVectors.empty())
+    {
+        os << " EVs: [";
+        first = true;
+        for (const auto& ev : evaluationVectors)
+        {
+            if (first) first = false; else os << ", ";
+            os << "{" << (int)ev.trust << "," << (int)ev.distrust << "," << (int)ev.uncertain << "}";
+        }
+        os << "]";
+    }
 }
 
 void
@@ -510,12 +532,29 @@ MessageHeader::Tc::Serialize(Buffer::Iterator start) const
 {
     Buffer::Iterator i = start;
 
+    static constexpr uint16_t FPNT_TC_MAGIC = 0xFAE0;
+
     i.WriteHtonU16(this->ansn);
-    i.WriteHtonU16(0); // Reserved
+
+    const bool emitEvs = (!this->evaluationVectors.empty()
+                          && this->evaluationVectors.size() == this->neighborAddresses.size());
+
+    i.WriteHtonU16(emitEvs ? FPNT_TC_MAGIC : 0);
 
     for (auto iter = this->neighborAddresses.begin(); iter != this->neighborAddresses.end(); iter++)
     {
         i.WriteHtonU32(iter->Get());
+    }
+
+    if (emitEvs)
+    {
+        for (const auto& ev : this->evaluationVectors)
+        {
+            i.WriteU8(ev.trust);
+            i.WriteU8(ev.distrust);
+            i.WriteU8(ev.uncertain);
+            i.WriteU8(0); // Reserved/Padding
+        }
     }
 }
 
@@ -525,17 +564,52 @@ MessageHeader::Tc::Deserialize(Buffer::Iterator start, uint32_t messageSize)
     Buffer::Iterator i = start;
 
     this->neighborAddresses.clear();
+    this->evaluationVectors.clear();
     NS_ASSERT(messageSize >= 4);
 
-    this->ansn = i.ReadNtohU16();
-    i.ReadNtohU16(); // Reserved
+    static constexpr uint16_t FPNT_TC_MAGIC = 0xFAE0;
 
-    NS_ASSERT((messageSize - 4) % IPV4_ADDRESS_SIZE == 0);
-    int numAddresses = (messageSize - 4) / IPV4_ADDRESS_SIZE;
-    this->neighborAddresses.clear();
+    this->ansn = i.ReadNtohU16();
+    const uint16_t reserved = i.ReadNtohU16();
+    const bool hasEvs = (reserved == FPNT_TC_MAGIC);
+
+    const uint32_t payloadSize = messageSize - 4;
+    int numAddresses = 0;
+
+    if (hasEvs)
+    {
+        if (payloadSize % 8 != 0)
+        {
+            return messageSize;
+        }
+        numAddresses = payloadSize / 8;
+    }
+    else
+    {
+        // Standard RFC 3626 layout: each entry is 4 bytes IP.
+        if (payloadSize % IPV4_ADDRESS_SIZE != 0)
+        {
+            return messageSize;
+        }
+        numAddresses = payloadSize / IPV4_ADDRESS_SIZE;
+    }
+
     for (int n = 0; n < numAddresses; ++n)
     {
         this->neighborAddresses.emplace_back(i.ReadNtohU32());
+    }
+
+    if (hasEvs)
+    {
+        for (int n = 0; n < numAddresses; ++n)
+        {
+            EvaluationVector ev;
+            ev.trust = i.ReadU8();
+            ev.distrust = i.ReadU8();
+            ev.uncertain = i.ReadU8();
+            i.ReadU8(); // Padding
+            this->evaluationVectors.push_back(ev);
+        }
     }
 
     return messageSize;

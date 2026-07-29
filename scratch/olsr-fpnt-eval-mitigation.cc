@@ -1,137 +1,5 @@
 /* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
 /*
- * FPNT-OLSR Evaluation Harness  (post-audit Phase 2 rewrite)
- * ==========================================================
- *
- * CHANGELOG SUMMARY (see Phase 2 plan for details):
- *   LEAK-001/002/003: defense internal state, attacker-on-path, defense
- *                     config moved out of features into oracle/labels/runs.
- *   OBS-001: HELLO filtered in MAC and PHY callbacks. hello_count and
- *            olsr_control_bytes_with_hello go to oracle only.
- *   OBS-002: MacTx repurposed for MSDU/IP parsing (no WifiMacHeader peek).
- *            PhyTxBegin connected via failsafe; phy_trace_available flag.
- *   OBS-003: FlowMonitor and UdpServer columns -> oracle only.
- *   OBS-004: End-to-end latency from on-air IP-id correlation, not
- *            sender's IP-Tx hook.
- *   OBS-005: Data Tx/Rx counts from on-air MacTx capture.
- *   OBS-006: ThroughputBitsPerSecond uses delivered on-air bytes.
- *   RUN-004: Per-run staging directory + atomic promotion at end of main.
- *
- * CHANGELOG (Phase 3):
- *   WIN-001: measurement-window order can be randomized per run via
- *            --randomWindowOrder. The permutation is drawn from a SEPARATE
- *            std::mt19937 seeded by --run, so it is fully reproducible and
- *            does NOT consume any ns-3 RNG draws (identical topology for a
- *            given seed in both modes). Canonical order is the identity
- *            permutation [baseline, attack_only, defense_only,
- *            defense_vs_attack].
- *   WIN-002: timeline generalized so the t=[0,60) initial stabilization and
- *            the acceptance gates ALWAYS run in the neutral (attack OFF,
- *            defense OFF) state, regardless of window order. Each of the
- *            four slots then gets an identical 60 s post-transition
- *            stabilization + 40 s measurement. SIMULATION_END moves from
- *            400 s to 460 s as a result (60 + 4*100).
- *   WIN-003: runs.csv gains random_window_order, window_order_perm, and
- *            slot0_scenario columns. HEADER_VERSION bumped 1 -> 2.
- *
- * CHANGELOG (Phase 5):
- *   WBR-001 (revised): slot-transition cold start. The defense object's
- *            accumulated state is wiped to its freshly-loaded defaults at the
- *            START of each slot's 60 s stabilization period (an unconditional
- *            ForceDefenseColdStart() at the end of ApplyScenarioState, t =
- *            SlotTransitionTime(slot)), NOT at the measurement-window start.
- *            This gives the defense the full stabilization window to warm up,
- *            so the measurement window observes a fully-warmed defense -- while
- *            still inheriting nothing from the previous slot, because the
- *            transition reset is UNCONDITIONAL (it fires on every slot even
- *            when the (attack,defense) state did not change, so two consecutive
- *            defense-enabled slots cannot leak across the boundary). Aligns the
- *            reset point with the Watchdog harness so all defenses reset at the
- *            same instant. The wipe reuses the defense's existing symmetric
- *            SetEnabled cold-start (toggled off->on, or
- *            on->off->on) so ALL state (trust table, S^(0) persistence,
- *            D1/D2 bookkeeping, ...) is cleared and the window's intended
- *            enabled/disabled value is restored. This resets ONLY state owned
- *            by the defense object; physical simulation state (channel load,
- *            MAC queues, route churn) is NOT defense state and is left
- *            untouched by design. Schema unchanged (HEADER_VERSION still 2).
- *   WBR-002: optional --debugDefenseState flag (default off). When set, the
- *            harness prints the aggregate sizes of the defense's accumulated
- *            state containers at the start of each measurement window. If the
- *            cold start works they read zero; any non-zero value is direct
- *            evidence of a leak through defense state. stdout only -- no CSV
- *            column is added. HARNESS_VERSION bumped 2.0.0 -> 2.1.0 for
- *            provenance (lets fixed rows be told apart from pre-fix rows via
- *            the existing harness_version column; the CSV SCHEMA is unchanged).
- *
- * CHANGELOG (cross-harness generalization / cleanup):
- *   GEN-001: shared collector renamed fpnt_features.h ->
- *            olsr_window_features.h; namespace ns3::fpnt -> ns3::olsreval
- *            (the collector is defense-agnostic; the FPNT name was an
- *            artifact of this harness being written first). The three
- *            harnesses share a byte-identical measurement core.
- *   GEN-004: new --defenseParamsFile writes this build's effective FPNT
- *            parameters once per output dir (provenance sidecar; not an ML
- *            input and not part of any CSV schema).
- *   NOTE: HARNESS_VERSION was "2.2.0" at GEN time; the WBR-002 note above predates the
- *         2.1.0 -> 2.2.0 bump and is kept for history.
- *
- * CHANGELOG (observability tightening / schema v3):
- *   OBS-007: RTS/CTS/ACK are 1-hop MAC control frames with the same
- *            observability limit as HELLO -- a remote passive attacker
- *            cannot reliably sniff them. PhyTxBeginCallback now drops them
- *            before any feature observation (mirror of the OBS-001 HELLO
- *            filter), and the five features derived from them
- *            (RtsRateLocal, CtsRateLocal, AckRateLocal, AckDelayMean,
- *            AckDelayStd) are removed from the shared collector
- *            (olsr_window_features.h). Feature columns: 86 -> 81.
- *            Layer2RetransmissionRate (retry bit read from the data
- *            frame's own header), ChannelBusyTimeFraction and
- *            InterFrameSpacingMean are retained and now accumulate over
- *            observable frames only. HEADER_VERSION bumped 2 -> 3.
- *            Applied identically to all three harnesses.
- *
- * CHANGELOG (multi-flow traffic generation, TRF-001..TRF-004):
- *   TRF-001: each measurement window now carries NUM_DATA_FLOWS (= 3)
- *            SIMULTANEOUS UDP flows instead of the single node1 -> node0
- *            flow, so several different nodes transmit and the defense's
- *            network-level footprint (emergent isolation around the
- *            attacker) becomes observable. Flow 0 is ALWAYS the legacy
- *            node1 -> node0 pair (its acceptance gate is unchanged); the
- *            additional pairs are selected deterministically by
- *            SelectDataFlowPairs() from a SEPARATE std::mt19937 seeded by
- *            a fixed mix of --seed and --run (mirror of WIN-001: no ns-3
- *            RNG draw is consumed, so topology and the accept/reject
- *            decision are unchanged for a given seed). Selected pairs
- *            exclude attackers as src/dst, are endpoint-disjoint across
- *            flows, and obey a geometric lower bound that guarantees
- *            >= minHops OLSR hops. Per-flow timing/size/budget are
- *            IDENTICAL to the original flow (start offset +4 s in window,
- *            18 x 512 B at 2 s intervals), so the aggregate offered load
- *            is ~6 kb/s of application traffic -- far below saturation.
- *   TRF-002: on-air packet correlation is keyed by the passively
- *            observable triple (src, dst, IP-id) -- ns-3 assigns the IP
- *            Identification per (src,dst,protocol) starting at 0 on EVERY
- *            node, so concurrent flows collide on the bare 16-bit id.
- *            Delivery detection generalizes from the single victim MAC to
- *            a flow-destination IP -> MAC map (same last-hop logic,
- *            applied per destination).
- *   TRF-003: the t=60 minHops gate checks EVERY flow pair (flow 0's check
- *            and rejection-reason strings are unchanged).
- *            ObserveAttackerOnPath walks every flow's OLSR path:
- *            attacker_on_path (labels) = 1 iff the attacker sits on AT
- *            LEAST ONE flow path; path_hops_internal (oracle) = rounded
- *            MEAN hop count over flows with a valid path.
- *   TRF-004: oracle UDP counters sum over the per-flow UdpServers;
- *            udp_expected_in_window is now NUM_DATA_FLOWS * 18 = 54 and
- *            udp_loss_percent is computed against it. CSV schemas are
- *            UNCHANGED (column sets, counts and order identical;
- *            HEADER_VERSION stays 3); HARNESS_VERSION bumped
- *            2.2.0 -> 2.3.0 so multi-flow rows are distinguishable from
- *            single-flow rows via the existing harness_version column.
- *            Applied identically in all three harness .cc files;
- *            olsr_window_features.h is untouched.
- *
  * CHANGELOG (single-pair traffic restoration, TRF-005):
  *   TRF-005: SUPERSEDES TRF-001. NUM_DATA_FLOWS goes back from 3 to 1, so a
  *            measurement window carries exactly ONE communicating pair --
@@ -157,21 +25,6 @@
  *            multi-flow rows via the existing harness_version column.
  *            Applied identically to all four harnesses
  *            (trust / watchdog / dcfm / fpnt).
- *
- * Output files (replaces single metrics.csv):
- *   --runsFile          one row per accepted run (config/metadata)
- *   --featuresFile      one row per (run_id, scenario) -- ML X-matrix only
- *   --labelsFile        one row per (run_id, scenario) -- y-vector
- *   --oracleFile        one row per (run_id, scenario) -- forbidden as ML input
- *   --topologyProbeFile one row per attempted run (unchanged)
- *
- * Special CLI modes:
- *   --emit-header       print all four headers to stdout and exit 0
- *   --self-test         run cycle-counter unit tests and exit 0/1
- *
- * Topology, traffic, and acceptance gates are unchanged from the original
- * harness. The window TIMELINE is generalized (see WIN-002) so that both
- * the canonical and randomized window orders share one timeline.
  */
 
 #include "ns3/core-module.h"
@@ -182,16 +35,7 @@
 #include "ns3/applications-module.h"
 #include "ns3/flow-monitor-module.h"
 #include "ns3/olsr-module.h"
-// NOTE: we deliberately do NOT include "ns3/olsr-trust-defense.h". That header
-// (the lecturer's trust defense) cross-includes its sub-module headers via
-// "defense/..." relative paths, which only resolve inside the olsr module's own
-// build. ns-3 installs all module headers FLATTENED into build/include/ns3/ (no
-// defense/ subdir), so including it from a scratch program would fail to
-// compile. Instead we create the defense by its registered TypeId string and
-// drive it entirely through the defense-agnostic base-class interface
-// (OlsrDefenseStrategy) plus the generic ns-3 attribute system -- which needs
-// only the flat base header below.
-#include "ns3/olsr-defense-strategy.h"
+#include "ns3/olsr-defense-fpnt.h"
 #include "ns3/udp-client-server-helper.h"
 #include "ns3/llc-snap-header.h"
 
@@ -222,7 +66,7 @@
 
 using namespace ns3;
 
-NS_LOG_COMPONENT_DEFINE ("OlsrTrustEvalMitigation");
+NS_LOG_COMPONENT_DEFINE ("OlsrFpntEvalMitigation");
 
 // ============================================================================
 // Version markers (RUN-006 / reproducibility)
@@ -529,21 +373,14 @@ struct SimulationConfig
 
   uint32_t    minHops            = 3;
 
-  // Trust-based OLSR defense knobs (Adnane et al. 2013). Defaults mirror the
-  // defense's canonical OlsrTrustDefenseConfig struct. These are the BASE
-  // (defense-ON) values; the harness toggles the defense on/off per slot.
-  bool     enableForwardMonitor    = true;    // Formula 10 black-hole monitor
-  bool     enableConsistencyRules  = false;   // Formulas 6/7/9b consistency checks
-  bool     enableAlertDistribution = false;   // §7 trust-alert bus
-  double   forwardTimeout          = 3.0;     // s, awaiting period (covers OLSR transmit + reflood jitter)
-  double   checkInterval           = 0.25;    // s, expiry sweep granularity
-  bool     monitorData             = true;    // watch DATAx forwarding
-  bool     monitorTc               = true;    // watch TCx re-flood
-  bool     monitorRelayedData      = false;   // also watch relayed DATA (generalized watchdog)
-  bool     strictMacAttribution    = false;   // require MAC<->IP match to clear a record
-  uint32_t minForwardFailures      = 3;       // consecutive failures before mistrust (suppresses false positives)
-  bool     mistrustPermanent       = false;   // exact mistrust temporary (rehabilitatable) vs permanent
-  double   mistrustDuration        = 60.0;    // s, rehab window when not permanent
+  bool     redundantMpr            = false;
+  double   maliciousThreshold      = 0.2;
+  double   uncertaintyBeta         = 0.6;
+  double   fadingFactor            = 0.7;
+  double   maxLoad                 = 1.0e6;
+  double   maxDelay                = 0.5;
+  uint32_t cheatThreshold          = 2;
+  Time     trustUpdateInterval     = Seconds (5.0);
 
   // OBS-001/002/003/004/005/006: four output files instead of one CSV.
   std::string runsFile          = "";
@@ -653,16 +490,6 @@ static bool g_defenseCurrentlyOn = false;
 // &nodes argument bound into ObserveAttackerOnPath.
 static NodeContainer*         g_simNodes          = nullptr;
 static bool                   g_debugDefenseState = false;
-
-// Base (defense-ON) sub-module enables, copied from the CLI config in main().
-// SetDefenseState() reads these to decide which sub-modules to switch on when a
-// slot enables the defense (an OFF slot switches them all off so the network
-// behaves as if no defense were installed). The timing/scope attributes are set
-// ONCE at install time and never change, so only the enable flags + response
-// flag are toggled per slot.
-static bool g_baseEnableForwardMonitor    = true;
-static bool g_baseEnableConsistencyRules  = false;
-static bool g_baseEnableAlertDistribution = false;
 
 static std::map<Ipv4Address, uint32_t> g_ipToNode;
 static std::map<uint32_t, Mac48Address> g_nodeToMac;       // for first-hop-MAC
@@ -774,11 +601,9 @@ static const char* RUNS_HEADER =
   "run_id,rng_run,rng_seed,harness_version,header_version,"
   "n_nodes,grid_x,grid_y,mobility,radio_range,min_hops_required,"
   "num_attackers,attackers_list,spoof_count,attacker_jitter,"
-  "defense_variant,enable_forward_monitor,enable_consistency_rules,"
-  "enable_alert_distribution,forward_timeout_s,check_interval_s,"
-  "monitor_data,monitor_tc,monitor_relayed_data,strict_mac_attribution,"
-  "min_forward_failures,mistrust_permanent,mistrust_duration_s,"
-  "phy_trace_available,wall_clock_seconds,"
+  "defense_variant,redundant_mpr,malicious_threshold,uncertainty_beta,"
+  "fading_factor,max_load,max_delay,cheat_threshold,"
+  "trust_update_interval_s,phy_trace_available,wall_clock_seconds,"
   "random_window_order,window_order_perm,slot0_scenario";
 
 static const char* LABELS_HEADER =
@@ -1673,12 +1498,7 @@ ObserveAttackerOnPath (NodeContainer* nodes,
               GetOlsrProtocol (nodes->Get (attId));
           if (!attProto) continue;
           const Ipv4Address attAddr = attProto->GetMainAddress ();
-          // The trust defense has no continuous trust value (unlike FPNT); it
-          // keeps a binary mistrust set MN_x (GetBlacklist()). Map detected ->
-          // 0.0, not-detected -> 1.0 so the oracle's min/avg attacker-trust
-          // columns stay populated and monotone (min=0 means at least one
-          // honest node has detected the attacker).
-          const double t = bl.count (attAddr) ? 0.0 : 1.0;
+          const double t = def->GetNodeTrust (attAddr);
           sumTrust += t;
           samples++;
           if (t < minTrust) minTrust = t;
@@ -1723,22 +1543,6 @@ SetAttackState (NodeContainer nodes, std::vector<uint32_t> attackerIds,
             << (active ? "ACTIVATED" : "DEACTIVATED") << std::endl;
 }
 
-// Enable/disable the trust defense for the current slot.
-//
-// The trust defense has NO single "Enabled" attribute (unlike FPNT). Its
-// observable effect on the network is the Formula-15 countermeasure driven by
-// IsMalicious(), which is gated by ResponseEnabled; its detection sub-modules
-// are gated by their per-module Enable* attributes. We therefore map the
-// harness's binary defense switch onto BOTH:
-//   active  -> ResponseEnabled=true  + the base sub-module enables (defense
-//              detects AND isolates the attacker; observable in the features).
-//   !active -> ResponseEnabled=false + all sub-modules off (fully inert: the
-//              network behaves exactly as if no defense were installed).
-// We only WRITE the attribute mirror here; the values take effect when the
-// immediately-following ForceDefenseColdStart() tears the object down and
-// re-runs Setup() (which rebuilds the sub-modules from this mirror). The
-// timing/scope attributes (ForwardTimeout, CheckInterval, MonitorData, ...) are
-// set once at install and intentionally left untouched here.
 static void
 SetDefenseState (NodeContainer nodes, bool active)
 {
@@ -1749,15 +1553,9 @@ SetDefenseState (NodeContainer nodes, bool active)
       if (!proto) continue;
       PointerValue pv;
       proto->GetAttribute ("DefenseStrategy", pv);
-      Ptr<olsr::OlsrDefenseStrategy> def = pv.Get<olsr::OlsrDefenseStrategy> ();
-      if (!def) continue;
-      def->SetAttribute ("EnableForwardMonitor",
-                         BooleanValue (active && g_baseEnableForwardMonitor));
-      def->SetAttribute ("EnableConsistencyRules",
-                         BooleanValue (active && g_baseEnableConsistencyRules));
-      def->SetAttribute ("EnableAlertDistribution",
-                         BooleanValue (active && g_baseEnableAlertDistribution));
-      def->SetAttribute ("ResponseEnabled", BooleanValue (active));
+      Ptr<olsr::OlsrDefenseFpnt> def =
+          DynamicCast<olsr::OlsrDefenseFpnt> (pv.Get<olsr::OlsrDefenseStrategy> ());
+      if (def) def->SetAttribute ("Enabled", BooleanValue (active));
     }
   std::cout << "[t=" << Simulator::Now ().GetSeconds () << "s] Defense "
             << (active ? "ACTIVATED" : "DEACTIVATED") << std::endl;
@@ -1835,22 +1633,18 @@ ResetOlsrCounters ()
 // inherit the trust table the first built up, so the observable features would
 // depend on window history rather than on the scenario alone.
 //
-// Mechanism (trust defense): the trust defense exposes no SetEnabled() wipe, but
-// its lifecycle gives us an equivalent clean reset. DoDispose() tears down ALL
-// accumulated state (the MN_x mistrust table, the forward monitor's pending
-// DATA/TC records and per-MPR failure counters, the alert-bus registration) and
-// clears its m_setupDone guard. RoutingProtocol::ReactivateDefenseStrategy()
-// then re-runs the defense's Setup(), which rebuilds every sub-module FRESH from
-// the current attribute mirror (i.e. the enabled/disabled state SetDefenseState
-// just wrote). Both calls run synchronously here (no simulator event fires
-// between them), so the object emerges identical to a freshly-loaded one with
-// the window's intended config -- the same guarantee the FPNT symmetric toggle
-// provided.
+// Mechanism: OlsrDefenseFpnt::SetEnabled() already performs a FULL SYMMETRIC
+// cold-start wipe on every state transition -- both enable->disable and
+// disable->enable clear ALL accumulated state. Two opposite toggles therefore
+// wipe everything and restore the window's intended enabled/disabled value,
+// leaving the object identical to a fresh load. Both toggles run synchronously
+// inside this call (no simulator events fire between them), so the brief
+// intermediate flip has no observable effect on the run.
 //
-// SCOPE: this resets ONLY state owned by the defense object. Physical simulation
-// state (channel occupancy, MAC queues, in-flight route churn) is NOT defense
-// state and is intentionally left untouched -- it cannot, and must not, be reset
-// from here.
+// SCOPE: this resets ONLY state owned by the defense object. Physical
+// simulation state (channel occupancy, MAC queues, in-flight route churn) is
+// NOT defense state and is intentionally left untouched -- it cannot, and must
+// not, be reset from here.
 static void
 ForceDefenseColdStart ()
 {
@@ -1862,10 +1656,12 @@ ForceDefenseColdStart ()
       if (!proto) continue;
       PointerValue pv;
       proto->GetAttribute ("DefenseStrategy", pv);
-      Ptr<olsr::OlsrDefenseStrategy> def = pv.Get<olsr::OlsrDefenseStrategy> ();
+      Ptr<olsr::OlsrDefenseFpnt> def =
+          DynamicCast<olsr::OlsrDefenseFpnt> (pv.Get<olsr::OlsrDefenseStrategy> ());
       if (!def) continue;
-      def->DoDispose ();                  // wipe ALL accumulated defense state
-      proto->ReactivateDefenseStrategy (); // re-Setup() fresh from the attribute mirror
+      const bool cur = def->GetEnabled ();
+      def->SetEnabled (!cur);   // transition #1: full symmetric cold-start wipe
+      def->SetEnabled (cur);    // transition #2: wipe again, restore ON/OFF state
     }
 }
 
@@ -1874,33 +1670,47 @@ ForceDefenseColdStart ()
 // container across all nodes and prints one line. Called immediately AFTER the
 // cold start, so every value MUST read zero; any non-zero value is direct
 // evidence of a leak through defense state. Off unless --debugDefenseState.
-// The trust defense exposes no FPNT-style DebugStateSizes struct, but its only
-// cross-window-leakable state that is observable through the base interface is
-// the detected-mistrust set MN_x (GetBlacklist()). Right after a cold start it
-// MUST be empty on every node; a non-zero sum is direct evidence that the
-// DoDispose()+Reactivate reset failed to wipe the trust table.
 static void
 PrintDefenseStateSizes ()
 {
   if (g_simNodes == nullptr) return;
-  std::size_t respondingNodes = 0;   // nodes whose IsMalicious() would fire on someone
-  std::size_t sumMistrust = 0, maxMistrust = 0;
+  std::size_t enabledNodes = 0;
+  std::size_t sumTrust = 0, maxTrust = 0;
+  std::size_t sumLastS = 0, sumDirectEv = 0, sumRecs = 0;
+  std::size_t sumPending = 0, sumMetrics = 0, sumLastTc = 0, sumMprSel = 0;
+  std::size_t sumBlacklist = 0, maxBlacklist = 0;
   for (uint32_t i = 0; i < g_simNodes->GetN (); ++i)
     {
       Ptr<olsr::RoutingProtocol> proto = GetOlsrProtocol (g_simNodes->Get (i));
       if (!proto) continue;
       PointerValue pv;
       proto->GetAttribute ("DefenseStrategy", pv);
-      Ptr<olsr::OlsrDefenseStrategy> def = pv.Get<olsr::OlsrDefenseStrategy> ();
+      Ptr<olsr::OlsrDefenseFpnt> def =
+          DynamicCast<olsr::OlsrDefenseFpnt> (pv.Get<olsr::OlsrDefenseStrategy> ());
       if (!def) continue;
-      const std::size_t n = def->GetBlacklist ().size ();
-      if (n > 0) ++respondingNodes;
-      sumMistrust += n;
-      maxMistrust = std::max (maxMistrust, n);
+      if (def->GetEnabled ()) ++enabledNodes;
+      const olsr::OlsrDefenseFpnt::DebugStateSizes s = def->GetDebugStateSizes ();
+      sumTrust     += s.trustTable;   maxTrust     = std::max (maxTrust, s.trustTable);
+      sumLastS     += s.lastSValues;
+      sumDirectEv  += s.directEvaluationVectors;
+      sumRecs      += s.recommendations;
+      sumPending   += s.pendingArrivals;
+      sumMetrics   += s.metrics;
+      sumLastTc    += s.lastTcTime;
+      sumMprSel    += s.mprSelectionTime;
+      sumBlacklist += s.blacklist;    maxBlacklist = std::max (maxBlacklist, s.blacklist);
     }
   std::cout << "[defense_state @ t=" << Simulator::Now ().GetSeconds () << "s]"
-            << " nodes_with_mistrust=" << respondingNodes
-            << " mistrust_set(sum=" << sumMistrust << ",max=" << maxMistrust << ")"
+            << " enabled_nodes=" << enabledNodes
+            << " trust(sum=" << sumTrust << ",max=" << maxTrust << ")"
+            << " lastS=" << sumLastS
+            << " directEv=" << sumDirectEv
+            << " recs=" << sumRecs
+            << " pending=" << sumPending
+            << " metrics=" << sumMetrics
+            << " lastTc=" << sumLastTc
+            << " mprSel=" << sumMprSel
+            << " blacklist(sum=" << sumBlacklist << ",max=" << maxBlacklist << ")"
             << "  [expect all 0 right after cold start]" << std::endl;
 }
 
@@ -2165,7 +1975,8 @@ PromoteStagedRows (const SimulationConfig& cfg, double wallClockSec)
   if (g_runRejected) return;
 
   // Build the runs.csv row.
-  const std::string defenseVariant = "Trust-OLSR";
+  const std::string defenseVariant = cfg.redundantMpr
+      ? "FPNT-OLSR(R)" : "FPNT-OLSR";
   const std::string attackersPipe = PipeJoinAttackers (cfg.maliciousNodesList);
   const uint32_t    numAttackers  = CountAttackers (cfg.maliciousNodesList);
 
@@ -2183,19 +1994,14 @@ PromoteStagedRows (const SimulationConfig& cfg, double wallClockSec)
           << cfg.minHops << ","
           << numAttackers << "," << attackersPipe << ","
           << cfg.spoofCount << "," << cfg.attackerJitter << ","
-          << defenseVariant << ","
-          << (cfg.enableForwardMonitor ? 1 : 0) << ","
-          << (cfg.enableConsistencyRules ? 1 : 0) << ","
-          << (cfg.enableAlertDistribution ? 1 : 0) << ","
-          << cfg.forwardTimeout << ","
-          << cfg.checkInterval << ","
-          << (cfg.monitorData ? 1 : 0) << ","
-          << (cfg.monitorTc ? 1 : 0) << ","
-          << (cfg.monitorRelayedData ? 1 : 0) << ","
-          << (cfg.strictMacAttribution ? 1 : 0) << ","
-          << cfg.minForwardFailures << ","
-          << (cfg.mistrustPermanent ? 1 : 0) << ","
-          << cfg.mistrustDuration << ","
+          << defenseVariant << "," << (cfg.redundantMpr ? 1 : 0) << ","
+          << cfg.maliciousThreshold << ","
+          << cfg.uncertaintyBeta << ","
+          << cfg.fadingFactor << ","
+          << cfg.maxLoad << ","
+          << cfg.maxDelay << ","
+          << cfg.cheatThreshold << ","
+          << cfg.trustUpdateInterval.GetSeconds () << ","
           << (g_phyTraceAvailable ? 1 : 0) << ","
           << wallClockSec << ","
           << (g_randomWindowOrder ? 1 : 0) << ","
@@ -2229,7 +2035,7 @@ static void
 PrintSimStats (const SimulationConfig& cfg, const std::vector<uint32_t>& attackerIds)
 {
   std::cout << "================================================================" << std::endl
-            << "  Trust-OLSR Mitigation Harness v" << HARNESS_VERSION << std::endl
+            << "  FPNT-OLSR Mitigation Harness v" << HARNESS_VERSION << std::endl
             << "  Header version: " << HEADER_VERSION << std::endl
             << "  PHY trace available: " << (g_phyTraceAvailable ? "yes" : "no")
             << std::endl
@@ -2257,10 +2063,8 @@ PrintSimStats (const SimulationConfig& cfg, const std::vector<uint32_t>& attacke
     }
   std::cout << std::endl
             << "Spoofed links   : " << cfg.spoofCount << std::endl
-            << "Defense variant : Trust-OLSR (fwdMon="
-            << (cfg.enableForwardMonitor ? 1 : 0) << " consistency="
-            << (cfg.enableConsistencyRules ? 1 : 0) << " alert="
-            << (cfg.enableAlertDistribution ? 1 : 0) << ")" << std::endl
+            << "Defense variant : "
+            << (cfg.redundantMpr ? "FPNT-OLSR(R)" : "FPNT-OLSR") << std::endl
             << "Window order    : "
             << (g_randomWindowOrder ? "RANDOMIZED" : "canonical")
             << " [" << WindowOrderPermString () << "] -> "
@@ -2302,19 +2106,15 @@ WriteDefenseParamsOnce (const SimulationConfig& cfg)
       os << "# Effective defense parameters (provenance; not an ML input).\n"
          << "harness_version=" << HARNESS_VERSION << "\n"
          << "header_version=" << HEADER_VERSION << "\n"
-         << "defense_variant=Trust-OLSR\n"
-         << "enable_forward_monitor=" << (cfg.enableForwardMonitor ? 1 : 0) << "\n"
-         << "enable_consistency_rules=" << (cfg.enableConsistencyRules ? 1 : 0) << "\n"
-         << "enable_alert_distribution=" << (cfg.enableAlertDistribution ? 1 : 0) << "\n"
-         << "forward_timeout_s=" << cfg.forwardTimeout << "\n"
-         << "check_interval_s=" << cfg.checkInterval << "\n"
-         << "monitor_data=" << (cfg.monitorData ? 1 : 0) << "\n"
-         << "monitor_tc=" << (cfg.monitorTc ? 1 : 0) << "\n"
-         << "monitor_relayed_data=" << (cfg.monitorRelayedData ? 1 : 0) << "\n"
-         << "strict_mac_attribution=" << (cfg.strictMacAttribution ? 1 : 0) << "\n"
-         << "min_forward_failures=" << cfg.minForwardFailures << "\n"
-         << "mistrust_permanent=" << (cfg.mistrustPermanent ? 1 : 0) << "\n"
-         << "mistrust_duration_s=" << cfg.mistrustDuration << "\n";
+         << "defense_variant=" << (cfg.redundantMpr ? "FPNT-OLSR(R)" : "FPNT-OLSR") << "\n"
+         << "redundant_mpr=" << (cfg.redundantMpr ? 1 : 0) << "\n"
+         << "malicious_threshold=" << cfg.maliciousThreshold << "\n"
+         << "uncertainty_beta=" << cfg.uncertaintyBeta << "\n"
+         << "fading_factor=" << cfg.fadingFactor << "\n"
+         << "max_load=" << cfg.maxLoad << "\n"
+         << "max_delay=" << cfg.maxDelay << "\n"
+         << "cheat_threshold=" << cfg.cheatThreshold << "\n"
+         << "trust_update_interval_s=" << cfg.trustUpdateInterval.GetSeconds () << "\n";
       const std::string s = os.str ();
       ssize_t w = write (fd, s.c_str (), s.size ());
       (void) w;
@@ -2433,29 +2233,14 @@ main (int argc, char* argv[])
   cmd.AddValue ("attackerJitter",  "Random offset (m) around centre",   cfg.attackerJitter);
   cmd.AddValue ("minHops",         "Min OLSR hops from src to dst @ t=60",
                                                                        cfg.minHops);
-  // Trust-based OLSR defense knobs (map to OlsrTrustDefense attributes).
-  cmd.AddValue ("enableForwardMonitor",    "Formula-10 black-hole forward monitor",
-                                                                         cfg.enableForwardMonitor);
-  cmd.AddValue ("enableConsistencyRules",  "Complementary consistency checks (6/7/9b)",
-                                                                         cfg.enableConsistencyRules);
-  cmd.AddValue ("enableAlertDistribution", "§7 trust-alert distribution bus",
-                                                                         cfg.enableAlertDistribution);
-  cmd.AddValue ("forwardTimeout",          "Awaiting period (s) to overhear an MPR re-forward",
-                                                                         cfg.forwardTimeout);
-  cmd.AddValue ("checkInterval",           "Forward-failure expiry sweep granularity (s)",
-                                                                         cfg.checkInterval);
-  cmd.AddValue ("monitorData",             "Watch DATAx forwarding",     cfg.monitorData);
-  cmd.AddValue ("monitorTc",               "Watch TCx re-flood",         cfg.monitorTc);
-  cmd.AddValue ("monitorRelayedData",      "Also watch relayed DATA (generalized watchdog)",
-                                                                         cfg.monitorRelayedData);
-  cmd.AddValue ("strictMacAttribution",    "Require MAC<->IP match to clear a DATA record",
-                                                                         cfg.strictMacAttribution);
-  cmd.AddValue ("minForwardFailures",      "Consecutive forward-failures before mistrust",
-                                                                         cfg.minForwardFailures);
-  cmd.AddValue ("mistrustPermanent",       "Exact mistrust permanent (else temporary)",
-                                                                         cfg.mistrustPermanent);
-  cmd.AddValue ("mistrustDuration",        "Rehab window (s) for temporary mistrust",
-                                                                         cfg.mistrustDuration);
+  cmd.AddValue ("redundantMpr",        "Enable FPNT-OLSR(R)",           cfg.redundantMpr);
+  cmd.AddValue ("maliciousThreshold",  "Trust threshold T*",            cfg.maliciousThreshold);
+  cmd.AddValue ("uncertaintyBeta",     "Beta",                          cfg.uncertaintyBeta);
+  cmd.AddValue ("fadingFactor",        "Lambda",                        cfg.fadingFactor);
+  cmd.AddValue ("maxLoad",             "Max load NORM (bps)",           cfg.maxLoad);
+  cmd.AddValue ("maxDelay",            "Max delay NORM (s)",            cfg.maxDelay);
+  cmd.AddValue ("cheatThreshold",      "Cheat-deviation flag delta",    cfg.cheatThreshold);
+  cmd.AddValue ("trustUpdateInterval", "Trust update period",           cfg.trustUpdateInterval);
   // New: four output files (replaces --csvFile).
   cmd.AddValue ("runsFile",          "runs.csv path (per-run metadata)", cfg.runsFile);
   cmd.AddValue ("featuresFile",      "windows_features.csv path",        cfg.featuresFile);
@@ -2491,7 +2276,7 @@ main (int argc, char* argv[])
   if (cfg.emitHeaderOnly) EmitHeadersAndExit ();
   if (cfg.selfTest) return RunSelfTest ();
 
-  if (cfg.verbose) LogComponentEnable ("OlsrTrustEvalMitigation", LOG_LEVEL_INFO);
+  if (cfg.verbose) LogComponentEnable ("OlsrFpntEvalMitigation", LOG_LEVEL_INFO);
   if (cfg.bHighRange) cfg.radioRange = 250.0;
   RngSeedManager::SetSeed (cfg.seed);
   RngSeedManager::SetRun  (cfg.run);
@@ -2499,10 +2284,6 @@ main (int argc, char* argv[])
   g_topologyProbeFile = cfg.topologyProbeFile;
   g_probeMobility     = cfg.bMobility;
   g_debugDefenseState = cfg.debugDefenseState;   // WBR-002
-  // Publish the base (defense-ON) sub-module enables for SetDefenseState().
-  g_baseEnableForwardMonitor    = cfg.enableForwardMonitor;
-  g_baseEnableConsistencyRules  = cfg.enableConsistencyRules;
-  g_baseEnableAlertDistribution = cfg.enableAlertDistribution;
 
   // WIN-001: determine the measurement-window order. The permutation is drawn
   // from a SEPARATE std::mt19937 seeded by --run, so it is (a) fully
@@ -2667,40 +2448,23 @@ main (int argc, char* argv[])
     }
   g_clientIp = interfaces.GetAddress (UDP_CLIENT_NODE_ID);
 
-  // ----- 5. Install trust-based defense (initially DISABLED) --------------
-  // Created by REGISTERED TYPEID STRING (see the header note: the concrete
-  // OlsrTrustDefense header cannot be included from a scratch program because it
-  // cross-includes "defense/..." paths that ns-3 does not expose in the flat
-  // install tree). The object is driven entirely through the OlsrDefenseStrategy
-  // base interface + the generic attribute system. Installed DISABLED (all
-  // sub-modules off, ResponseEnabled=false) so the t<60 stabilization and the
-  // neutral acceptance gates see an inert defense; SetDefenseState() +
-  // ForceDefenseColdStart() switch it on per slot. The timing/scope attributes
-  // are set ONCE here and never change afterwards.
-  ObjectFactory defFactory ("ns3::olsr::OlsrTrustDefense");
-  defFactory.Set ("EnableForwardMonitor",    BooleanValue (false));
-  defFactory.Set ("EnableConsistencyRules",  BooleanValue (false));
-  defFactory.Set ("EnableProvableIdentity",  BooleanValue (false));
-  defFactory.Set ("EnableAlertDistribution", BooleanValue (false));
-  defFactory.Set ("ResponseEnabled",         BooleanValue (false));
-  defFactory.Set ("ForwardTimeout",       TimeValue    (Seconds (cfg.forwardTimeout)));
-  defFactory.Set ("CheckInterval",        TimeValue    (Seconds (cfg.checkInterval)));
-  defFactory.Set ("MonitorData",          BooleanValue (cfg.monitorData));
-  defFactory.Set ("MonitorTc",            BooleanValue (cfg.monitorTc));
-  defFactory.Set ("MonitorRelayedData",   BooleanValue (cfg.monitorRelayedData));
-  defFactory.Set ("StrictMacAttribution", BooleanValue (cfg.strictMacAttribution));
-  defFactory.Set ("MinForwardFailures",   UintegerValue (cfg.minForwardFailures));
-  defFactory.Set ("MistrustPermanent",    BooleanValue (cfg.mistrustPermanent));
-  defFactory.Set ("MistrustDuration",     TimeValue    (Seconds (cfg.mistrustDuration)));
+  // ----- 5. Install FPNT defense (initially DISABLED) ---------------------
   for (uint32_t i = 0; i < nodes.GetN (); ++i)
     {
       Ptr<olsr::RoutingProtocol> proto = GetOlsrProtocol (nodes.Get (i));
       NS_ASSERT_MSG (proto, "OLSR protocol not found on node " << i);
-      Ptr<Object> defObj = defFactory.Create ();
-      Ptr<olsr::OlsrDefenseStrategy> def =
-          DynamicCast<olsr::OlsrDefenseStrategy> (defObj);
-      NS_ASSERT_MSG (def, "OlsrTrustDefense is not an OlsrDefenseStrategy");
+      Ptr<olsr::OlsrDefenseFpnt> def = CreateObject<olsr::OlsrDefenseFpnt> ();
+      def->SetAttribute ("Enabled",             BooleanValue (false));
+      def->SetAttribute ("MaliciousThreshold",  DoubleValue  (cfg.maliciousThreshold));
+      def->SetAttribute ("UncertaintyBeta",     DoubleValue  (cfg.uncertaintyBeta));
+      def->SetAttribute ("HistoryFadingFactor", DoubleValue  (cfg.fadingFactor));
+      def->SetAttribute ("MaxLoad",             DoubleValue  (cfg.maxLoad));
+      def->SetAttribute ("MaxDelay",            DoubleValue  (cfg.maxDelay));
+      def->SetAttribute ("CheatThreshold",     UintegerValue (cfg.cheatThreshold));
+      def->SetAttribute ("TrustUpdateInterval", TimeValue    (cfg.trustUpdateInterval));
       proto->SetAttribute ("DefenseStrategy", PointerValue (def));
+      proto->SetAttribute ("RedundantMprCoverage",
+                           BooleanValue (cfg.redundantMpr));
     }
 
   // ----- 5b. Per-run data-flow pair selection (TRF-001) --------------------
