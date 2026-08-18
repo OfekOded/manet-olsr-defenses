@@ -1444,7 +1444,8 @@ def check_module_installed(module_name: str):
 
 def run_step(args, target_to_run, target_args):
     libdir = "%s/lib" % out_dir
-
+    if not os.path.exists(libdir):
+        libdir += "64"
     custom_env = {
         "PATH": libdir,
         "PYTHONPATH": "%s/bindings/python" % out_dir,
@@ -1532,10 +1533,13 @@ def run_step(args, target_to_run, target_args):
 
         # running with command template?
         if args.command_template:
-            commands = (args.command_template % target_to_run).split()
-            check_program_installed(commands[0])
+            commands = args.command_template % f'"{target_to_run}"'
+            commands = list(re.findall(r'(?:".*?"|\S)+', commands))
+            commands = list(map(lambda x: x.replace('"', ""), commands))
             target_to_run = commands[0]
-            target_args = commands[1:] + target_args
+            commands = commands[1:]
+            check_program_installed(target_to_run)
+            target_args = commands + target_args
 
             # running mpi on the CI?
             if target_to_run in ["mpiexec", "mpirun"] and os.getenv("MPI_CI"):
@@ -1989,6 +1993,19 @@ def main():
                 target_to_run = target_to_run[1:-1]
             target_to_run = target_to_run.split()
             target_to_run, target_args = target_to_run[0], target_to_run[1:]
+            # Remove version prefixes and build profile suffices if they exist
+            if os.path.basename(target_to_run).startswith("ns3"):
+                pardir = os.path.dirname(target_to_run)
+                components = os.path.basename(target_to_run).split("-")
+                if "ns3" in components[0]:
+                    components.pop(0)
+                if "dev" == components[0]:
+                    components.pop(0)
+                if "rc" in components[0]:
+                    components.pop(0)
+                if components[-1] in ["debug", "relwithdebinfo", "default", "optimized"]:
+                    components.pop(-1)
+                target_to_run = f"{pardir}/{'-'.join(components)}"
         else:
             raise Exception("You need to specify a program to run")
 

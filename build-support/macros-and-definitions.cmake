@@ -258,14 +258,8 @@ macro(process_options)
 
   if(${NS3_CLANG_TIDY} OR ${NS3_CLANG_TIDY_FIX})
     find_program(
-      CLANG_TIDY
-      NAMES clang-tidy-20
-            clang-tidy-19
-            clang-tidy-18
-            clang-tidy-17
-            clang-tidy-16
-            clang-tidy-15
-            clang-tidy
+      CLANG_TIDY NAMES clang-tidy-21 clang-tidy-20 clang-tidy-19 clang-tidy-18
+                       clang-tidy-17 clang-tidy
     )
     if("${CLANG_TIDY}" STREQUAL "CLANG_TIDY-NOTFOUND")
       message(FATAL_ERROR "Clang-tidy was not found")
@@ -976,8 +970,10 @@ macro(process_options)
       )
       add_custom_target(
         run-introspected-command-line
-        COMMAND ${CMAKE_COMMAND} -E env NS_COMMANDLINE_INTROSPECTION=..
-                ${Python3_EXECUTABLE} ./test.py --no-build --constrain=example
+        COMMAND
+          ${CMAKE_COMMAND} -E env NS_COMMANDLINE_INTROSPECTION=..
+          ${Python3_EXECUTABLE} ./test.py --no-build --retain
+          --constrain=example
         WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
         DEPENDS all-test-targets # all-test-targets only exists if ENABLE_TESTS
                                  # is set to ON
