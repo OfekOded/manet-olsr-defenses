@@ -13,36 +13,46 @@ namespace ns3 {
 namespace olsr {
 
 /**
- * \brief FPNT-OLSR Trust Reasoning Mechanism.
+ * \brief FPNT-OLSR trust reasoning mechanism.
  *
- * Full implementation of the trust based routing mechanism described in:
+ * Implementation of:
  *     Tan, Li, Dong (2015). "Trust based routing mechanism for securing
  *     OLSR-based MANET", Ad Hoc Networks 30, pp. 84-98.
  *
  * This class implements:
- *   - The four trust factors (Section 5.1 / Definitions 1-4):
- *       * Load                    (p1 / p2)   -- DoS victim signature
- *       * Packet Forwarding Rate  (p3 / p4)   -- blackhole signature
- *       * Average Forwarding Delay(p5 / p6)   -- jellyfish signature
- *       * Protocol Deviation Flag (p7 / p8)   -- routing-plane signature
+ *   - The four trust factors (Section 3.1 / Definitions 1-4, collected as
+ *     described in Section 5.1):
+ *       * Load                     (p1 / p2)  -- DoS victim signature
+ *       * Packet forwarding rate   (p3 / p4)  -- blackhole signature
+ *       * Average forwarding delay (p5 / p6)  -- jellyfish signature
+ *       * Protocol deviation flag  (p7 / p8)  -- routing-plane signature
  *
- *   - The seven fuzzy rules producing 15 propositions and 11 transitions
- *     (Section 3.2 / Figure 2):
- *       * R1: IF p1 OR p4 OR p5 THEN p9
- *       * R2: IF p2 AND p5 THEN p10
- *       * R3: IF p7 THEN p11
- *       * R4: IF p3 AND p6 AND p2 THEN p12
- *       * R5: IF p8 THEN p13
- *       * R6: IF p9 OR p10 OR p11 THEN p14
- *       * R7: IF p12 AND p13 THEN p15
+ *   - The 7 fuzzy rules over 15 propositions, decomposed into the 11
+ *     transitions the paper counts ("let n = 14, m = 11"): the two OR rules
+ *     R1 and R6 become three competitive Type-2 transitions each, because
+ *     Type-2 semantics require an independent threshold test per input place.
+ *       * R1: IF p1 OR p4 OR p5      THEN p9   (1,1,1; .4,.4,.5; .9,.9,.6)
+ *       * R2: IF p2 AND p5           THEN p10  (.6,.4; .5; .8)
+ *       * R3: IF p7                  THEN p11  (1; .5; .9)
+ *       * R4: IF p3 AND p6 AND p2    THEN p12  (.6,.3,.1; .7; .9)
+ *       * R5: IF p8                  THEN p13  (1; .8; 1)
+ *       * R6: IF p9 OR p10 OR p11    THEN p14  (1,1,1; .4,.4,.4; .9,.7,.9)
+ *       * R7: IF p12 AND p13         THEN p15  (.5,.5; .6; .9)
  *
- *   - The matrix-based reasoning algorithm (Algorithm 1).
- *   - The pairwise L1 slander-filter aggregation (Equations 1-3).
+ *   - The matrix-based reasoning algorithm (Algorithm 1) with operators
+ *     (x)/(.)/(o) of Definitions 5, 6 and 7.
+ *   - The pairwise L1 slander filter (Equations 1-3).
  *   - Equation (4) trust synthesis: T = E_trust + beta * E_uncertain.
- *   - Equation (5) temporal smoothing with correct first-period bootstrap.
- *   - The trust-based routing algorithm (Algorithm 2) is implemented in
+ *   - Equation (5) temporal smoothing, with an explicit first-period
+ *     bootstrap (the paper leaves T_{c-1} undefined for the first period).
+ *   - The trust based routing algorithm (Algorithm 2) lives in
  *     RoutingProtocol::RunTrustDijkstra and queries this class via
  *     GetNodeTrust.
+ *
+ * Deviations from the paper are never silent: every behavior this class adds
+ * beyond the paper's text sits behind an ns-3 attribute whose default value
+ * reproduces the paper. See StickyEvidence, DemoteUnverifiedNodes,
+ * RollbackOnMacFailure and MonitorTcForwarding.
  *
  * Architecture note:
  *   This class is passive regarding scheduling. The RoutingProtocol invokes
@@ -72,31 +82,27 @@ public:
   virtual double GetNodeTrust (Ipv4Address node) override;
   virtual bool IsTrustRoutingEnabled () const override { return m_enabled; }
 
-/**
+  /**
    * @brief Toggle the defense state with symmetric cold-start semantics.
    *
-   * On EVERY state transition (disabled->enabled and enabled->disabled),
-   * every piece of accumulated state is wiped so neither phase can carry
+   * On EVERY state transition (disabled->enabled and enabled->disabled)
+   * every piece of accumulated state is wiped, so neither phase can carry
    * residue from the other. Hooks fire regardless of m_enabled and
-   * PeriodicCheck only clears the per-period containers
-   * (m_metrics/m_recommendations/m_pendingArrivals), so without the
-   * symmetric wipe an enabled-phase trust table or the longer-lived
-   * D1/D2 bookkeeping (m_lastTcTime, m_mprSelectionTime,
-   * m_directEvaluationVectors, m_lastSValues) would leak into the
-   * subsequent phase. No-op calls (same value passed twice) are skipped.
+   * PeriodicCheck only clears the per-period containers, so without the
+   * symmetric wipe an enabled-phase trust table or the longer-lived D1/D2
+   * bookkeeping would leak into the subsequent phase. No-op calls (the same
+   * value passed twice) are skipped.
    */
   void SetEnabled (bool enabled);
   bool GetEnabled () const;
 
   // ======================================================================
-  // Read-only state introspection (harness leak-verification, point 6).
+  // Read-only state introspection.
   //
   // Reports the current sizes of every accumulated-state container plus the
-  // derived blacklist size. Used ONLY by the evaluation harness to verify,
-  // at the start of each measurement window, that the window-boundary cold
-  // start emptied the defense state (all fields must be 0 right after the
-  // reset). Strictly const and side-effect-free; does not participate in the
-  // trust algorithm in any way.
+  // derived blacklist size, so an evaluation harness can verify that a
+  // window-boundary cold start really emptied the defense state. Strictly
+  // const and side-effect-free; plays no part in the trust algorithm.
   // ======================================================================
   struct DebugStateSizes
   {
@@ -113,7 +119,7 @@ public:
   DebugStateSizes GetDebugStateSizes () const;
 
   // ======================================================================
-  // Incoming Message Handlers (Trust Propagation, Section 5.2)
+  // Incoming Message Handlers (trust propagation, Section 5.2)
   // ======================================================================
   virtual void OnRecvEvaluationVectors (
       Ipv4Address sender,
@@ -133,24 +139,29 @@ public:
   virtual void OnTcGenerated (const MessageHeader::Tc& tc) override;
 
   // ======================================================================
-  // Monitoring & Metric Collection (Section 5.1)
+  // Monitoring & metric collection (Section 5.1)
   //
   // Hook wiring summary:
-  //   OnDataPacketReceived       -> load accumulation and arrival timestamp
-  //                                 recording for delay measurement
-  //   OnDataPacketForwarded      -> PFR denominator (Count^j_rcv) and
-  //                                 arrival timestamp recording
-  //   OnNeighborForwardedPacket  -> PFR numerator (Count^j_fwd) and
-  //                                 delay-departure matching
-  //   OnRecvTc                   -> deviation-flag D1/D2 monitoring
-  //   OnDataPacketDropped, OnQueueStatusReport,
-  //   OnEnergyStateUpdate, OnMacTxFailure
-  //                              -> out of scope for the paper's model
+  //   OnDataPacketForwarded      -> load, PFR denominator (Count^j_rcv) and
+  //                                 arrival timestamp for the delay measure
+  //   OnNeighborForwardedPacket  -> load and PFR denominator for traffic
+  //                                 injected by OTHER transmitters, PFR
+  //                                 numerator (Count^j_fwd) and the
+  //                                 delay-departure match
+  //   OnRecvTc                   -> deviation flag D2, optional TC-relay
+  //                                 term of the PFR
+  //   OnDataPacketReceived, OnDataPacketDropped, OnQueueStatusReport,
+  //   OnEnergyStateUpdate        -> outside the paper's model
   // ======================================================================
   virtual void OnDataPacketReceived (Ptr<const Packet> packet,
                                      Ipv4Address source,
                                      Ipv4Address destination,
                                      Ipv4Address nextHop) override;
+
+  using OlsrDefenseStrategy::OnDataPacketForwarded;
+  virtual void OnDataPacketForwarded (Ptr<const Packet> packet,
+                                      Ipv4Address nextHop,
+                                      Ipv4Address finalDest) override;
 
   virtual void OnDataPacketForwarded (const Ipv4Header &header,
                                       Ptr<const Packet> packet,
@@ -171,20 +182,27 @@ public:
                                     double energyFraction) override;
   virtual void OnMacTxFailure (Ipv4Address neighbor, uint32_t count) override;
 
+  // Cross-layer hooks belonging to other defenses in this tree; the paper's
+  // model uses none of them.
+  virtual void OnSelfReliabilityReport (uint32_t localDropsCount) override {}
+  virtual void OnRtsReceived (Mac48Address sender, Mac48Address receiver) override {}
+  virtual void OnCtsReceived (Mac48Address receiver) override {}
+  virtual bool RequiresFictitiousNode () override { return false; }
+
   /**
    * \brief Execute one full trust reasoning cycle.
    *
    * Performs, in order:
    *   1. Protocol-deviation rule D1 scan (silent MPR detection, Section 5.1.D).
-   *   2. Expiration of unmatched delay-measurement arrivals.
-   *   3. Fresh direct evaluations from observed metrics for every monitored
-   *      neighbor (Algorithm 1).
-   *   4. Aggregation of direct evaluation plus received recommendations
-   *      via pairwise L1 slander filtering (Equations 1-3).
+   *   2. Expiration of unmatched delay-measurement arrivals and TC relay
+   *      obligations.
+   *   3. Fresh direct evaluations from the observed metrics, for every
+   *      monitored neighbor (Algorithm 1).
+   *   4. Aggregation of the direct evaluation plus received recommendations
+   *      via the pairwise L1 slander filter (Equations 1-3).
    *   5. Equation (4) trust synthesis followed by Equation (5) temporal
-   *      smoothing (with correct first-period bootstrap).
-   *   6. Reactive reroute notification if any neighbor has crossed the
-   *      malicious threshold in this period.
+   *      smoothing.
+   *   6. Reroute notification if any verdict flipped this period.
    */
   virtual void PeriodicCheck () override;
 
@@ -200,8 +218,8 @@ private:
     uint32_t countRcv;    // Packets V_j is expected to forward (Count^j_rcv).
     uint32_t countFwd;    // Packets observed to be forwarded by V_j (Count^j_fwd).
     uint32_t countRCheat; // Routing-plane deviations (Count^j_rcheat).
-    double   totalDelay;  // Sum of forwarding delays (seconds) for matched
-                          // packets (accumulator for average forwarding delay).
+    double   totalDelay;  // Sum of forwarding delays (seconds) over matched
+                          // packets; d_j of Definition 3.
 
     NodeBehaviorMetrics ()
       : countLoad (0), countRcv (0), countFwd (0),
@@ -211,27 +229,34 @@ private:
   // Per-period metric counters, one entry per monitored neighbor.
   std::map<Ipv4Address, NodeBehaviorMetrics> m_metrics;
 
+  // Routing-plane deviation counters. Kept apart from m_metrics because they
+  // are indexed by our MPRs (the nodes D1/D2 can accuse) whereas the data
+  // plane counters are indexed by our MPR selectors (the nodes we monitor).
+  // Merging the two lets the selector-scoped pruning in PeriodicCheck discard
+  // deviation evidence before it is ever evaluated.
+  std::map<Ipv4Address, uint32_t> m_deviationCounts;
+
   // Aggregated trust value T(V_j) for every known node in the network.
   std::map<Ipv4Address, double> m_trustTable;
 
   // Latest direct evaluation vectors (piggybacked onto outgoing TC messages).
   std::map<Ipv4Address, EvaluationVector> m_directEvaluationVectors;
 
-  // Persistence store for S^(0) across periods. Prevents an attacker from
-  // resetting its trust by going silent between evaluations.
+  // Persistence store for S^(0) across periods, used only when the
+  // StickyEvidence attribute is on.
   std::map<Ipv4Address, std::vector<double>> m_lastSValues;
 
+  // Recommendations received this period, keyed by (originator, target).
   std::map<std::pair<Ipv4Address, Ipv4Address>, EvaluationVector> m_recommendations;
-
 
   // ----------------------------------------------------------------------
   // Delay-measurement bookkeeping (Definition 3).
   //
-  // When we observe a packet arrive at neighbor V_j, we record
-  // arrival_time[V_j][uid] = now. When we later observe V_j transmit a
-  // packet with the same UID, we compute delay = now - arrival_time and
-  // add it to totalDelay[V_j]. Unmatched arrivals are expired during
-  // PeriodicCheck to prevent unbounded growth.
+  // Observing a packet arrive at neighbor V_j records
+  // arrival_time[V_j][fingerprint] = now. Observing V_j transmit a packet
+  // with the same fingerprint yields delay = now - arrival_time, which is
+  // added to totalDelay[V_j]. Unmatched arrivals are expired in
+  // PeriodicCheck so the map cannot grow without bound.
   // ----------------------------------------------------------------------
   struct PendingArrival
   {
@@ -246,62 +271,83 @@ private:
   // ----------------------------------------------------------------------
   std::map<Ipv4Address, Time> m_lastTcTime;
 
+  // First time each current MPR was seen as ours, shared by D1 and D2 as the
+  // start of the grace window.
   std::map<Ipv4Address, Time> m_mprSelectionTime;
 
-  // Node's own main address, cached from Setup() for D2 self-omission check.
+  // (originator, message sequence) pairs already judged by D2. The routing
+  // protocol delivers OnRecvTc for every copy of a flooded TC, so without
+  // this a single omission would be counted once per relay that reaches us.
+  std::set<std::pair<Ipv4Address, uint16_t>> m_seenTcForD2;
+
+  // TC relay obligations pending observation, for the optional TC term of
+  // the packet forwarding rate: (originator, message sequence) -> when it
+  // was recorded, per expected relayer.
+  std::map<Ipv4Address, std::map<std::pair<Ipv4Address, uint16_t>, Time>> m_pendingTcRelays;
+
+  // Node's own main address, cached from Setup() for the D2 self-omission check.
   Ipv4Address m_selfAddress;
 
   // ----------------------------------------------------------------------
   // Reasoning parameters (all exposed as ns-3 attributes).
   // ----------------------------------------------------------------------
   Time   m_checkInterval;       // Trust update period 't'.
-  double m_maliciousThreshold;  // Node is malicious iff T(V_j) < this.
+  double m_maliciousThreshold;  // Node is reported malicious iff T(V_j) < this.
   double m_uncertaintyBeta;     // Eq. (4): T = E_trust + beta * E_uncertain.
   double m_fadingFactor;        // Eq. (5): lambda in temporal smoothing.
   double m_maxLoad;             // NORM normalizer for load, bits/s (Def. 10).
   double m_maxDelay;            // NORM normalizer for avg delay, seconds.
   uint32_t m_cheatThreshold;    // delta in Section 5.1.D.
-  bool   m_enabled;             // Runtime toggle: when false the defense
-                                // becomes a transparent no-op (every node
-                                // reports as non-malicious, trust routing
-                                // disabled, PeriodicCheck skipped). Allows
-                                // multi-phase scenarios to enable/disable
-                                // defense without rebuilding the stack.
+  bool   m_enabled;             // Runtime toggle; see SetEnabled.
+
+  // ---- Opt-in behaviors that go beyond the paper. All default to the
+  // ---- paper's own semantics (see GetTypeId for the rationale of each).
+  bool m_stickyEvidence;        // Carry a factor's truth degree across a
+                                // period in which it saw no observation.
+  bool m_demoteUnverified;      // Discount nodes known only from hearsay.
+  bool m_rollbackOnMacFailure;  // Undo Count_rcv when our own link failed.
+  bool m_monitorTcForwarding;   // Add the TC-relay term to the PFR.
 
   // ----------------------------------------------------------------------
   // Helpers (implementation in .cc).
   // ----------------------------------------------------------------------
   std::vector<double> MetricsToS0 (Ipv4Address addr,
-                                   const NodeBehaviorMetrics& metrics);
+                                   const NodeBehaviorMetrics& metrics,
+                                   uint32_t deviationCount);
 
   EvaluationVector RunFuzzyPetriNet (const std::vector<double>& s0) const;
 
   /**
    * \brief Apply Equations (1)-(3): pairwise L1 DIF slander filtering.
    *
-   * The direct evaluation (when present) is expected to be included as
-   * one element of \p evs by the caller. The paper treats direct and
-   * indirect evaluations identically during aggregation.
+   * The direct evaluation (when present) is expected to be one element of
+   * \p evs: the paper states that direct and indirect evaluations carry the
+   * same importance and are aggregated identically.
    */
   void AggregateEvaluations (const std::vector<EvaluationVector>& evs,
                              double& outTrust,
                              double& outUncertain) const;
 
   /**
-   * \brief Protocol-deviation Rule D1 scan (Section 5.1.D, silent-MPR case).
+   * \brief Protocol-deviation rule D1 (Section 5.1.D, silent-MPR case).
    *
-   * For every neighbor currently in this node's MPR set, check whether a
-   * TC has been received within OLSR_TOP_HOLD_TIME. If not, increment
-   * the routing-cheat counter for that MPR.
+   * For every neighbor currently in this node's MPR set, check whether a TC
+   * has been received within OLSR_TOP_HOLD_TIME. If not, increment that
+   * MPR's routing-cheat counter.
    */
   void ScanDeviationRuleD1 ();
 
-  /**
-   * \brief Expire unmatched delay arrivals older than 2 * trust interval.
-   */
-  void ExpireStaleArrivals ();
+  /// \brief Expire unmatched delay arrivals and TC relay obligations.
+  void ExpireStaleObservations ();
 
-  // Fuzzy Petri Net matrix operators (Definitions 5, 6, 7).
+  /// \brief True when \p addr is one of our MPR selectors, i.e. a node the
+  ///        paper puts us in charge of monitoring.
+  bool IsOurMprSelector (Ipv4Address addr) const;
+
+  /// \brief OLSR_TOP_HOLD_TIME = 3 * TcInterval, read from the protocol.
+  Time GetTopologyHoldTime () const;
+
+  // Fuzzy Petri net matrix operators (Definitions 5, 6, 7).
   std::vector<double> MatrixOp_Threshold (
       const std::vector<double>& input,
       const std::vector<double>& threshold) const;

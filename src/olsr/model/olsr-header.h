@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) 2007 INESC Porto
+ *
+ * SPDX-License-Identifier: GPL-2.0-only
+ *
+ * Author: Gustavo J. A. M. Carneiro  <gjc@inescporto.pt>
+ */
+
 #ifndef OLSR_HEADER_H
 #define OLSR_HEADER_H
 
@@ -19,20 +27,24 @@ double EmfToSeconds(uint8_t emf);
 uint8_t SecondsToEmf(double seconds);
 
 /**
- * @brief Evaluation Vector for FPNT-OLSR Trust Propagation.
+ * @brief Evaluation Vector for FPNT-OLSR trust propagation (Tan et al. 2015).
  *
- * Represents the Trust, Distrust, and Uncertainty values calculated
- * by the Fuzzy Petri Net. Values are quantized to uint8_t to minimize
- * packet overhead.
+ * Carries the (E_trust, E_distrust, E_uncertain) triple produced by
+ * Algorithm 1, quantized to uint8_t so that piggybacking it onto a TC
+ * message costs 4 bytes per advertised neighbor (paper Fig. 6).
  */
 struct EvaluationVector
 {
-    uint8_t trust;      ///< Quantized Trust Value (p15)
-    uint8_t distrust;   ///< Quantized Distrust Value (p14)
-    uint8_t uncertain;  ///< Quantized Uncertainty Value
-    uint8_t reserved;   ///< Padding for 32-bit alignment
+    uint8_t trust;     ///< Quantized E_trust     (truth degree of p15)
+    uint8_t distrust;  ///< Quantized E_distrust  (truth degree of p14)
+    uint8_t uncertain; ///< Quantized E_uncertain (1 - p14 - p15)
+    uint8_t reserved;  ///< Padding for 32-bit alignment
 
-    EvaluationVector() : trust(0), distrust(0), uncertain(0), reserved(0)
+    EvaluationVector()
+        : trust(0),
+          distrust(0),
+          uncertain(0),
+          reserved(0)
     {
     }
 };
@@ -337,7 +349,7 @@ class MessageHeader : public Header
          * store a header into the byte buffer of a packet.
          *
          * @param start an iterator which points to where the header should
-         * be written.
+         *        be written.
          */
         void Serialize(Buffer::Iterator start) const;
         /**
@@ -345,7 +357,7 @@ class MessageHeader : public Header
          * re-create a header from the byte buffer of a packet.
          *
          * @param start an iterator which points to where the header should
-         * read from.
+         *        read from.
          * @param messageSize the message size.
          * @returns the number of bytes read.
          */
@@ -433,7 +445,7 @@ class MessageHeader : public Header
          * store a header into the byte buffer of a packet.
          *
          * @param start an iterator which points to where the header should
-         * be written.
+         *        be written.
          */
         void Serialize(Buffer::Iterator start) const;
         /**
@@ -441,7 +453,7 @@ class MessageHeader : public Header
          * re-create a header from the byte buffer of a packet.
          *
          * @param start an iterator which points to where the header should
-         * read from.
+         *        read from.
          * @param messageSize the message size.
          * @returns the number of bytes read.
          */
@@ -471,8 +483,24 @@ class MessageHeader : public Header
         std::vector<Ipv4Address> neighborAddresses; //!< Neighbor address container.
         uint16_t ansn;                              //!< Advertised Neighbor Sequence Number.
 
-        // FPNT-OLSR Extension
-        std::vector<EvaluationVector> evaluationVectors; //!< Trust vectors for neighbors.
+        /// FPNT-OLSR extension (paper Section 5.2 / Fig. 6): one evaluation
+        /// vector per entry of neighborAddresses. Serialized only when the
+        /// two vectors have equal length; otherwise the TC goes out in plain
+        /// RFC 3626 form.
+        std::vector<EvaluationVector> evaluationVectors;
+
+        /**
+         * @brief Whether this TC actually carries FPNT evaluation vectors on the wire.
+         *
+         * Serialize() and GetSerializedSize() must agree exactly, or ns-3
+         * writes past the buffer it reserved. Both consult this predicate.
+         * @returns true when the evaluation vectors are emitted.
+         */
+        bool CarriesEvaluationVectors() const
+        {
+            return !evaluationVectors.empty() &&
+                   evaluationVectors.size() == neighborAddresses.size();
+        }
 
         /**
          * This method is used to print the content of a Tc message.
@@ -489,7 +517,7 @@ class MessageHeader : public Header
          * store a header into the byte buffer of a packet.
          *
          * @param start an iterator which points to where the header should
-         * be written.
+         *        be written.
          */
         void Serialize(Buffer::Iterator start) const;
         /**
@@ -497,7 +525,7 @@ class MessageHeader : public Header
          * re-create a header from the byte buffer of a packet.
          *
          * @param start an iterator which points to where the header should
-         * read from.
+         *        read from.
          * @param messageSize the message size.
          * @returns the number of bytes read.
          */
@@ -552,7 +580,7 @@ class MessageHeader : public Header
          * store a header into the byte buffer of a packet.
          *
          * @param start an iterator which points to where the header should
-         * be written.
+         *        be written.
          */
         void Serialize(Buffer::Iterator start) const;
         /**
@@ -560,7 +588,7 @@ class MessageHeader : public Header
          * re-create a header from the byte buffer of a packet.
          *
          * @param start an iterator which points to where the header should
-         * read from.
+         *        read from.
          * @param messageSize the message size.
          * @returns the number of bytes read.
          */

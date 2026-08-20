@@ -194,6 +194,18 @@ class RoutingProtocol : public Ipv4RoutingProtocol
      */
     typedef void (*TableChangeTracedCallback)(uint32_t size);
 
+    // ======================================================================
+    // SECURITY RESEARCH EXTENSION: Defense Strategy Reactivation
+    // Added to support mid-simulation defense toggling in test scenarios.
+    // DoInitialize() runs only once at Simulator::Run(); this function
+    // allows re-triggering Setup() and the defense timer at any point.
+    // ======================================================================
+
+    void ReactivateDefenseStrategy();
+
+    // ======================================================================
+
+
   private:
     std::set<uint32_t> m_interfaceExclusions; //!< Set of interfaces excluded by OSLR.
     Ptr<Ipv4StaticRouting>
@@ -294,14 +306,34 @@ class RoutingProtocol : public Ipv4RoutingProtocol
     /**
      * @brief Number of fake links to advertise (Link Spoofing Attack).
      *
-     * Upper bound on how many real, distant nodes the attacker will falsely
-     * claim as direct symmetric neighbors. Targets are selected from nodes
-     * the attacker has organically learned about via received OLSR traffic.
+     * Defines how many non-existent symmetric neighbors the node should
+     * advertise in its HELLO messages to increase its apparent centrality.
      * Default is 0 (disabled).
      */
     uint32_t m_spoofedLinksCount;
 
-    bool m_redundantMprCoverage{false}; //!< FPNT-OLSR(R): redundant MPR coverage + trust tie-break.
+    /**
+     * @brief Whether a malicious node also manipulates the control plane.
+     *
+     * IsMalicious bundles three distinct behaviours: dropping forwarded data
+     * (the blackhole proper), advertising Willingness::ALWAYS so neighbours
+     * preferentially select it as an MPR, and inflating its ANSN so its
+     * topology advertisements always look freshest. Only the first is a
+     * blackhole; the other two exist to get the attacker onto routes in the
+     * first place, and the FPNT trust model has no factor that observes
+     * either of them. Set false for a pure data-plane blackhole. Default true
+     * preserves the historical behaviour.
+     */
+    bool m_maliciousControlPlane;
+
+    /**
+     * @brief FPNT-OLSR(R): redundant MPR coverage with a trust tie-break.
+     *
+     * Paper Section 5.3. Only honoured when the loaded defense strategy
+     * reports IsTrustRoutingEnabled(). Default false = stock RFC 3626 MPR
+     * selection.
+     */
+    bool m_redundantMprCoverage;
 
     /**
      * @brief Build a list of real, distant node addresses to spoof as direct neighbors.
@@ -445,14 +477,51 @@ class RoutingProtocol : public Ipv4RoutingProtocol
     // ======================================================================
     // SECURITY RESEARCH EXTENSION: 
     // ======================================================================
+    void ProcessPromiscPacket (Ptr<const Packet> packet);
+
     void HandleDefenseTimer();
     Timer m_defenseTimer;
+
+    /**
+     * @brief Cadence of the periodic defense callback.
+     *
+     * Returns the loaded strategy's TrustUpdateInterval when it exposes one
+     * (FPNT-OLSR normalizes its metrics by exactly that period), otherwise
+     * the historical 1 s.
+     * @return the interval to schedule m_defenseTimer with.
+     */
+    Time GetDefenseCheckInterval() const;
+
+    /**
+     * @brief Whether the given MAC belongs to one of this node's own devices.
+     * @param mac the address to test.
+     * @return true if the address is ours.
+     */
+    bool IsOwnMacAddress (Mac48Address mac) const;
+
+    /**
+     * @brief Report an outgoing datagram, with its final IPv4 header, to the
+     *        defense strategy.
+     *
+     * Hooked to Ipv4L3Protocol's "Tx" trace rather than to RouteOutput,
+     * because the header RouteOutput is handed is only a routing query: its
+     * identification and payload-size fields are still zero, and are filled in
+     * afterwards by Ipv4L3Protocol::BuildHeader. A defense that fingerprints
+     * the datagram in order to recognise the neighbor's later retransmission
+     * therefore cannot use the RouteOutput header at all -- every locally
+     * originated packet hashes to the same value and never matches.
+     *
+     * @param packet the outgoing packet, IPv4 header included.
+     * @param ipv4 the IPv4 stack reporting the transmission.
+     * @param interface the outgoing interface index.
+     */
+    void MonitorIpv4Tx (Ptr<const Packet> packet, Ptr<Ipv4> ipv4, uint32_t interface);
 
     /**
    * \brief Trace callback to sniff neighbor traffic at the PHY layer.
    * Matches signature: ns3::WifiPhy::MonitorSnifferRxCallback
    */
-    void MonitorSnifferRx (Ptr<const Packet> packet, 
+  void MonitorSnifferRx (Ptr<const Packet> packet, 
                          uint16_t channelFreqMhz, 
                          WifiTxVector txVector, 
                          MpduInfo aMpdu, 
@@ -464,6 +533,8 @@ class RoutingProtocol : public Ipv4RoutingProtocol
     */
     void SetupPromiscuousMonitor ();
 
+    /// Flag to ensure we only attach the monitor once
+    bool m_monitorSetupDone;
     // ======================================================================
     /**
      * Send an OLSR message.
@@ -499,7 +570,7 @@ class RoutingProtocol : public Ipv4RoutingProtocol
      * @brief Creates the routing table of the node following \RFC{3626} hints.
      */
     void RoutingTableComputation();
-    
+
   public:
     /**
      * @brief Gets the main address associated with a given interface address.
@@ -508,12 +579,25 @@ class RoutingProtocol : public Ipv4RoutingProtocol
      */
     Ipv4Address GetMainAddress(Ipv4Address iface_addr) const;
 
-        // --- FPNT-OLSR Extension ---
     /**
-     * @brief Executes the Max-Min Trust Routing Algorithm (Algorithm 2).
-     * Replaces standard RoutingTableComputation when trust routing is enabled.
+     * @brief FPNT-OLSR trust based routing algorithm (paper Algorithm 2).
+     *
+     * Replaces RoutingTableComputation() while a trust-aware defense strategy
+     * is active: selects, for every destination, the path whose minimum
+     * intermediate-node trust is maximal, breaking ties on hop count.
      */
     void RunTrustDijkstra();
+
+    /**
+     * @brief Recompute the routing table now, using whichever algorithm the
+     *        currently loaded defense strategy implies.
+     *
+     * A defense that changes its verdicts outside the normal OLSR event flow
+     * (a trust period elapsing, the defense being toggled mid-run) needs the
+     * routing table refreshed immediately; otherwise the stale table survives
+     * until the next HELLO or TC happens to trigger a recompute.
+     */
+    void RecomputeRoutingTable() { RoutingTableComputation(); }
 
   private:
     /**
@@ -944,6 +1028,25 @@ class RoutingProtocol : public Ipv4RoutingProtocol
 
     /// Provides uniform random variables.
     Ptr<UniformRandomVariable> m_uniformRandomVariable;
+
+    // ======================================================================
+    // SECURITY RESEARCH EXTENSION: Self-Reliability & Cross Layer
+    // ======================================================================
+    
+    /**
+     * Counter for local physical layer reception failures (collisions/noise).
+     * Used to determine if "my" watchdog observations are reliable.
+     */
+    uint32_t m_localRxDrops;
+
+    /**
+     * Trace callback for PhyRxDrop.
+     * @param packet The dropped packet.
+     * @param reason The reason for the drop.
+     */
+    void OnLocalRxDrop (Ptr<const Packet> packet, ns3::WifiPhyRxfailureReason reason);
+    
+    // ======================================================================
 };
 
 } // namespace olsr

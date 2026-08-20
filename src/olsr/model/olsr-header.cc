@@ -478,19 +478,20 @@ MessageHeader::Hello::Deserialize(Buffer::Iterator start, uint32_t messageSize)
 
 // ---------------- OLSR TC Message -------------------------------
 
+/// Written into the RFC 3626 "Reserved" field of a TC to mark that FPNT-OLSR
+/// evaluation vectors follow the advertised-neighbor list (paper Fig. 6).
+/// A plain OLSR TC carries 0 there, so the two encodings stay distinguishable.
+static constexpr uint16_t FPNT_TC_MAGIC = 0xFAE0;
+
 uint32_t
 MessageHeader::Tc::GetSerializedSize() const
 {
     uint32_t size = 4; // ANSN + Reserved
     size += this->neighborAddresses.size() * IPV4_ADDRESS_SIZE;
-
-    // Check if EVs are populated
-    if (!this->evaluationVectors.empty())
+    if (CarriesEvaluationVectors())
     {
-        // Each EV is 4 bytes (trust, distrust, uncertain, reserved)
         size += this->evaluationVectors.size() * 4;
     }
-
     return size;
 }
 
@@ -520,8 +521,15 @@ MessageHeader::Tc::Print(std::ostream& os) const
         first = true;
         for (const auto& ev : evaluationVectors)
         {
-            if (first) first = false; else os << ", ";
-            os << "{" << (int)ev.trust << "," << (int)ev.distrust << "," << (int)ev.uncertain << "}";
+            if (first)
+            {
+                first = false;
+            }
+            else
+            {
+                os << ", ";
+            }
+            os << "{" << int(ev.trust) << "," << int(ev.distrust) << "," << int(ev.uncertain) << "}";
         }
         os << "]";
     }
@@ -532,14 +540,10 @@ MessageHeader::Tc::Serialize(Buffer::Iterator start) const
 {
     Buffer::Iterator i = start;
 
-    static constexpr uint16_t FPNT_TC_MAGIC = 0xFAE0;
+    const bool emitEvs = CarriesEvaluationVectors();
 
     i.WriteHtonU16(this->ansn);
-
-    const bool emitEvs = (!this->evaluationVectors.empty()
-                          && this->evaluationVectors.size() == this->neighborAddresses.size());
-
-    i.WriteHtonU16(emitEvs ? FPNT_TC_MAGIC : 0);
+    i.WriteHtonU16(emitEvs ? FPNT_TC_MAGIC : 0); // Reserved / FPNT marker
 
     for (auto iter = this->neighborAddresses.begin(); iter != this->neighborAddresses.end(); iter++)
     {
@@ -567,41 +571,31 @@ MessageHeader::Tc::Deserialize(Buffer::Iterator start, uint32_t messageSize)
     this->evaluationVectors.clear();
     NS_ASSERT(messageSize >= 4);
 
-    static constexpr uint16_t FPNT_TC_MAGIC = 0xFAE0;
-
     this->ansn = i.ReadNtohU16();
     const uint16_t reserved = i.ReadNtohU16();
     const bool hasEvs = (reserved == FPNT_TC_MAGIC);
 
     const uint32_t payloadSize = messageSize - 4;
-    int numAddresses = 0;
+    const uint32_t entrySize = hasEvs ? (IPV4_ADDRESS_SIZE + 4) : IPV4_ADDRESS_SIZE;
 
-    if (hasEvs)
+    if (payloadSize % entrySize != 0)
     {
-        if (payloadSize % 8 != 0)
-        {
-            return messageSize;
-        }
-        numAddresses = payloadSize / 8;
-    }
-    else
-    {
-        // Standard RFC 3626 layout: each entry is 4 bytes IP.
-        if (payloadSize % IPV4_ADDRESS_SIZE != 0)
-        {
-            return messageSize;
-        }
-        numAddresses = payloadSize / IPV4_ADDRESS_SIZE;
+        // Malformed or truncated TC: consume the message and report nothing
+        // rather than aborting the whole simulation on an NS_ASSERT.
+        NS_LOG_WARN("Malformed TC message: payload " << payloadSize << " not a multiple of "
+                                                     << entrySize);
+        return messageSize;
     }
 
-    for (int n = 0; n < numAddresses; ++n)
+    const uint32_t numAddresses = payloadSize / entrySize;
+    for (uint32_t n = 0; n < numAddresses; ++n)
     {
         this->neighborAddresses.emplace_back(i.ReadNtohU32());
     }
 
     if (hasEvs)
     {
-        for (int n = 0; n < numAddresses; ++n)
+        for (uint32_t n = 0; n < numAddresses; ++n)
         {
             EvaluationVector ev;
             ev.trust = i.ReadU8();
