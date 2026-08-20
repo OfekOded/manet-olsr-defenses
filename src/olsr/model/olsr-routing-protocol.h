@@ -670,6 +670,25 @@ class RoutingProtocol : public Ipv4RoutingProtocol
      */
     void QueueMessage(const olsr::MessageHeader& message, Time delay);
 
+  public:
+    /**
+     * @brief Section 7 alert: re-broadcast the control messages that revealed an
+     * inconsistency, verbatim, so the rest of the network can re-run the same
+     * reasoning. Per the paper this is NOT a new message type -- it is the original
+     * HELLO/TC being retransmitted as evidence.
+     * @param evidence the messages to retransmit (typically a TC and a HELLO).
+     */
+    void BroadcastTrustAlert(const std::vector<olsr::MessageHeader>& evidence);
+
+    /**
+     * @brief Section 6.2: send a proof of neighbourhood to the one-hop neighbourhood.
+     * Per the paper's footnote 1 this message is never flooded.
+     * @param proof the signed declaration to carry.
+     */
+    void SendProof(const olsr::MessageHeader::Proof& proof);
+
+  private:
+
     /**
      * @brief Creates as many %OLSR packets as needed in order to send all buffered
      * %OLSR messages.

@@ -22,6 +22,8 @@
 #ifndef OLSR_ALERT_DISTRIBUTOR_H
 #define OLSR_ALERT_DISTRIBUTOR_H
 
+#include "../olsr-header.h"
+
 #include "ns3/ipv4-address.h"
 #include "ns3/nstime.h"
 
@@ -42,8 +44,13 @@ namespace olsr
  */
 struct ConsistencyProof
 {
-    std::string formula;               //!< "6", "7", "8", "12".
+    std::string formula;               //!< "6", "7", "8", "12", "5.1e".
     Ipv4Address accused;               //!< node the proof incriminates.
+    Ipv4Address witness;               //!< 5.1e: the selector whose own HELLO contradicts the accused.
+
+    /// Section 7: the control messages that revealed the inconsistency. The alert IS
+    /// their retransmission -- not a verdict, not a new message type.
+    std::vector<MessageHeader> evidence;
     std::vector<Ipv4Address> advertised; //!< e.g. the TC MPR-selector list of the accused.
     std::vector<Ipv4Address> reference;  //!< e.g. accused's HELLO sym-neighbours (6) / accuser's MPR set (7).
 
@@ -95,7 +102,7 @@ class OlsrAlertDistributor
   public:
     /// Called when a (re-verified) alert is accepted -> the owner mistrusts \p accused.
     using AcceptCallback =
-        std::function<void(Ipv4Address accused, const std::string& formula, Ipv4Address accuser, Time now)>;
+        std::function<void(const ConsistencyProof& proof, Ipv4Address accuser, Time now)>;
 
     OlsrAlertDistributor(Ipv4Address self, AcceptCallback onAccept);
     ~OlsrAlertDistributor();
@@ -105,6 +112,11 @@ class OlsrAlertDistributor
 
     /// Local consistency detection -> broadcast the proof network-wide.
     void Announce(const ConsistencyProof& proof, Time now);
+
+    /// Section 7 rate limiting: a detection is announced once, not on every
+    /// repetition of the same inconsistency.
+    /// \return true the first time this (accused, formula) is announced.
+    bool ShouldAnnounce(const ConsistencyProof& proof, Time now);
 
     /// Bus -> this node: dedup, re-verify the proof, then accept (mistrust accused).
     void Deliver(const TrustAlert& a, Time now);

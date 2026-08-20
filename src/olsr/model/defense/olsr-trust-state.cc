@@ -9,6 +9,8 @@
 #include "ns3/log.h"
 #include "ns3/simulator.h"
 
+#include <iterator>
+
 namespace ns3
 {
 namespace olsr
@@ -62,6 +64,18 @@ OlsrTrustState::MistrustPartial(const std::set<Ipv4Address>& group,
 {
     // Partial mistrust: recorded for measurement, NO countermeasure applied
     // (paper p.1169: "when the mistrust is partial, no rule is applied").
+    // Recorded so the partial series of Table 3 is measurable. Deliberately NOT fed
+    // into m_exact, so IsMalicious() and therefore the Formula 15 countermeasure are
+    // untouched by a partial detection.
+    const Time deadline = m_cfg.mistrustPermanent ? Time::Max() : (now + m_cfg.mistrustDuration);
+    for (const auto& n : group)
+    {
+        if (n != m_self)
+        {
+            m_partial[n] = deadline;
+        }
+    }
+
     TrustDetectionEvent ev;
     ev.time = now;
     ev.target = group.empty() ? Ipv4Address() : *group.begin();
@@ -92,6 +106,17 @@ OlsrTrustState::GetMistrusted() const
     return out;
 }
 
+std::set<Ipv4Address>
+OlsrTrustState::GetPartialMistrusted() const
+{
+    std::set<Ipv4Address> out;
+    for (const auto& kv : m_partial)
+    {
+        out.insert(kv.first);
+    }
+    return out;
+}
+
 void
 OlsrTrustState::Expire(Time now)
 {
@@ -111,6 +136,10 @@ OlsrTrustState::Expire(Time now)
         {
             ++it;
         }
+    }
+    for (auto it = m_partial.begin(); it != m_partial.end();)
+    {
+        it = (it->second <= now) ? m_partial.erase(it) : std::next(it);
     }
 }
 

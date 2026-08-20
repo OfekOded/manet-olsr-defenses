@@ -78,6 +78,10 @@ class OlsrTrustState
     /// \return the current exact-mistrust set MN_x.
     std::set<Ipv4Address> GetMistrusted() const;
 
+    /// Nodes under PARTIAL mistrust (Table 3's second series). No countermeasure is
+    /// applied to these -- paper: "when the mistrust is partial, no rule is applied".
+    std::set<Ipv4Address> GetPartialMistrusted() const;
+
     /// Rehabilitate temporary mistrust whose deadline has passed (no-op when permanent).
     void Expire(Time now);
 
@@ -92,6 +96,7 @@ class OlsrTrustState
     Ipv4Address m_self;
     /// Exact mistrust set with per-node rehabilitation deadline (Max() == permanent).
     std::map<Ipv4Address, Time> m_exact;
+    std::map<Ipv4Address, Time> m_partial; //!< group members under partial mistrust.
     std::vector<TrustDetectionEvent> m_log;
 };
 

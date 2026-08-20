@@ -48,6 +48,12 @@ ConsistencyProof::Verify(Ipv4Address accuser) const
         // its own MPR set) never selected the accused as MPR.
         return Contains(advertised, accuser) && !Contains(reference, accused);
     }
+    if (formula == "5.1e")
+    {
+        // Section 5.1e: the accused's TC must name the witness, and the witness's own HELLO
+        // declaration (carried as the reference) must not name the accused.
+        return Contains(advertised, witness) && !Contains(reference, accused);
+    }
     // (8),(12) not yet produced; reject unknown/unverifiable proofs (no blind trust).
     return false;
 }
@@ -111,7 +117,10 @@ void
 OlsrAlertDistributor::Start()
 {
     m_running = true;
-    OlsrTrustBus::Instance().Register(this);
+    // NOTE: the process-wide OlsrTrustBus is no longer used. Section 7 alerts are
+    // retransmitted control messages carried by real OLSR broadcast (see
+    // RoutingProtocol::BroadcastTrustAlert), so there is no verdict to deliver
+    // out of band. The bus type is retained only so older scenarios still link.
 }
 
 void
@@ -128,6 +137,28 @@ OlsrAlertDistributor::Key(const TrustAlert& a)
     std::ostringstream os;
     os << a.accuser << '|' << a.proof.accused << '|' << a.proof.formula;
     return os.str();
+}
+
+bool
+OlsrAlertDistributor::ShouldAnnounce(const ConsistencyProof& proof, Time now)
+{
+    if (!m_running)
+    {
+        return false;
+    }
+    std::ostringstream os;
+    os << m_self << '|' << proof.accused << '|' << proof.formula;
+    const std::string k = os.str();
+    if (m_seen.find(k) != m_seen.end())
+    {
+        return false;
+    }
+    m_seen.insert(k);
+    NS_LOG_INFO("[" << now.As(Time::S) << "] node " << m_self
+                    << " ANNOUNCES alert: retransmitting the " << proof.evidence.size()
+                    << " control message(s) that incriminate " << proof.accused
+                    << " (Formula " << proof.formula << ")");
+    return true;
 }
 
 void
@@ -170,7 +201,7 @@ OlsrAlertDistributor::Deliver(const TrustAlert& a, Time now)
                     << a.proof.accused << " Formula(" << a.proof.formula << ") from " << a.accuser);
     if (m_onAccept)
     {
-        m_onAccept(a.proof.accused, a.proof.formula, a.accuser, now);
+        m_onAccept(a.proof, a.accuser, now);
     }
 }
 

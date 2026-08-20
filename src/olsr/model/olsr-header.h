@@ -158,6 +158,9 @@ class MessageHeader : public Header
         TC_MESSAGE = 2,
         MID_MESSAGE = 3,
         HNA_MESSAGE = 4,
+        /// Section 6.2: a signed neighbourhood declaration, used as the proof of a
+        /// symmetric link. Never flooded (paper Section 6.2, footnote 1).
+        PROOF_MESSAGE = 5,
     };
 
     MessageHeader();
@@ -510,6 +513,33 @@ class MessageHeader : public Header
       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
      \endverbatim
      */
+    /**
+     * @brief Section 6.2 proof of neighbourhood: a node's own symmetric-neighbour
+     * declaration, signed with its private key and accompanied by its public key.
+     *
+     * A node emits this about itself; a neighbour that holds a copy relays it verbatim
+     * to prove its link with the originator. Because the signature covers the payload
+     * and the public key identifies the signer (Formula 13), a relayed copy cannot be
+     * altered or fabricated by the relay.
+     */
+    struct Proof
+    {
+        Ipv4Address originator;            //!< the node whose declaration this is (A).
+        std::vector<Ipv4Address> declared; //!< NS_A u MPRS_A as A itself advertised it.
+        uint64_t pubKey;                   //!< KPub_A.
+        uint64_t signature;                //!< sign_A over the declaration.
+
+        /// @brief Print the content. @param os output stream
+        void Print(std::ostream& os) const;
+        /// @returns the expected size of the header.
+        uint32_t GetSerializedSize() const;
+        /// @brief Serialize. @param start where to write
+        void Serialize(Buffer::Iterator start) const;
+        /// @brief Deserialize. @param start where to read @param messageSize size
+        /// @returns bytes read
+        uint32_t Deserialize(Buffer::Iterator start, uint32_t messageSize);
+    };
+
     struct Hna
     {
         /**
@@ -563,6 +593,7 @@ class MessageHeader : public Header
         Hello hello; //!< HELLO message (optional).
         Tc tc;       //!< TC message (optional).
         Hna hna;     //!< HNA message (optional).
+        Proof proof; //!< PROOF message (optional, Section 6.2).
     } m_message;     //!< The actual message being carried.
 
   public:
@@ -621,6 +652,33 @@ class MessageHeader : public Header
      * Set the message type to HNA and return the message content.
      * @returns The HNA message.
      */
+    /**
+     * Set the message type to PROOF and return the message content.
+     * @returns The PROOF message.
+     */
+    Proof& GetProof()
+    {
+        if (m_messageType == 0)
+        {
+            m_messageType = PROOF_MESSAGE;
+        }
+        else
+        {
+            NS_ASSERT(m_messageType == PROOF_MESSAGE);
+        }
+        return m_message.proof;
+    }
+
+    /**
+     * Get the PROOF message.
+     * @returns The PROOF message.
+     */
+    const Proof& GetProof() const
+    {
+        NS_ASSERT(m_messageType == PROOF_MESSAGE);
+        return m_message.proof;
+    }
+
     Hna& GetHna()
     {
         if (m_messageType == 0)

@@ -28,10 +28,13 @@
 #include "ns3/ipv4-address.h"
 #include "ns3/nstime.h"
 
+#include <cstdint>
 #include <functional>
 #include <map>
 #include <set>
 #include <string>
+#include <tuple>
+#include <utility>
 
 namespace ns3
 {
@@ -62,13 +65,28 @@ class OlsrConsistencyRules
                          MistrustCallback onMistrust);
 
     /// \param origin the node y that generated this HELLO (== sender for HELLO).
-    void OnRecvHello(Ipv4Address origin, const MessageHeader::Hello& hello, Time now);
+    void OnRecvHello(Ipv4Address origin,
+                     const MessageHeader& msg,
+                     const MessageHeader::Hello& hello,
+                     Time now);
 
-    /// \param origin the node y that ORIGINATED this TC (not the relay).
-    void OnRecvTc(Ipv4Address origin, const MessageHeader::Tc& tc, Time now);
+    /// \param origin the node y that ORIGINATED this TC.
+    /// \param relay the neighbour we actually received this copy from (Formula 8).
+    /// \param msgSeq the message sequence number carried by the TC (Formula 8).
+    void OnRecvTc(Ipv4Address origin,
+                  Ipv4Address relay,
+                  const MessageHeader& msg,
+                  const MessageHeader::Tc& tc,
+                  Time now);
 
     /// Periodic hook (used by the Formula 9a generation-timeout stub).
     void PeriodicCheck(Time now);
+
+    /// Section 7: does our OWN local vision contradict the claim carried by an alert?
+    /// Used to "detect false alerts" before accepting or re-broadcasting one. Returns
+    /// false when we simply hold no evidence either way -- absence of corroboration is
+    /// not contradiction.
+    bool ContradictsLocalVision(const ConsistencyProof& proof, Time now) const;
 
   private:
     /// Extract from a HELLO the addresses y advertises as SYMMETRIC neighbours.
@@ -79,8 +97,65 @@ class OlsrConsistencyRules
     Ipv4Address m_self;
     MistrustCallback m_onMistrust;
 
-    /// Latest symmetric-neighbour set each node advertised in its HELLO (for Formula 6).
-    std::map<Ipv4Address, std::set<Ipv4Address>> m_advSymNeighbors;
+    /// One node's latest HELLO declaration plus the time it arrived, so the paper's
+    /// message-validity rule (Section 4) can be applied before the declaration is used
+    /// as evidence against a third party.
+    struct Declaration
+    {
+        std::set<Ipv4Address> sym; //!< what the node advertised as its symmetric neighbours.
+        Time received;             //!< when that HELLO was received.
+        MessageHeader raw;         //!< the message verbatim, so it can be retransmitted
+                                   //!< as evidence (Section 7).
+    };
+
+    /// Latest HELLO declaration of each node we hear directly (Formula 6 and Section 5.1e).
+    std::map<Ipv4Address, Declaration> m_advSymNeighbors;
+
+    /// Latest MPR-selector set (MSS) each node advertised in its TC, for Formula 12.
+    std::map<Ipv4Address, Declaration> m_advSelectors;
+
+    /// Formula 8: one seen copy of a TC, so a contradictory second copy can be caught.
+    struct TcCopy
+    {
+        std::set<Ipv4Address> content; //!< the advertised MPR-selector set.
+        Ipv4Address relay;             //!< the neighbour that handed us this copy.
+        Time received;
+    };
+
+    /// Formula 8 cache, keyed by (originator, message sequence number).
+    std::map<std::pair<Ipv4Address, uint16_t>, TcCopy> m_tcCopies;
+
+    /// Formula 9a: when each node last ORIGINATED a TC we saw, and when it became one
+    /// of our MPRs (so a freshly selected MPR is given the awaiting period before we
+    /// conclude it generates no TC).
+    std::map<Ipv4Address, Time> m_lastTcOriginated;
+    std::map<Ipv4Address, Time> m_mprSince;
+
+    /// A run of contradictions of one kind about one (accused, witness) pair.
+    struct Streak
+    {
+        uint32_t hits;  //!< how many times it has recurred without a gap.
+        Time last;      //!< when it was last observed.
+    };
+
+    /// Contradiction streaks, keyed by (rule, accused, witness). Section 5.1 convicts only a
+    /// node which CONTINUES to generate them, so a streak that goes quiet is forgotten.
+    std::map<std::tuple<std::string, Ipv4Address, Ipv4Address>, Streak> m_streaks;
+
+    /// Drop cached state that can no longer be used as evidence (Section 4 validity),
+    /// so nothing grows with elapsed time.
+    void PruneExpired(Time now);
+
+    /// \return true once this contradiction has recurred often enough to convict.
+    bool Persisted(const std::string& rule, Ipv4Address accused, Ipv4Address witness, Time now);
+
+    /// \return true once the defense has been up long enough for the rules to apply
+    /// (Section 5.1: "after an initialization process").
+    bool PastInitialization(Time now) const;
+
+    /// When this rule set was created (i.e. the last defense cold start). Backs the
+    /// Section 5.1 "after an initialization process" grace period.
+    Time m_startTime;
 };
 
 } // namespace olsr

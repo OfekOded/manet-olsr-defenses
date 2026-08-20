@@ -69,6 +69,59 @@ struct OlsrTrustDefenseConfig
                                          //!< instead of permanently fragmenting routing; set true for the
                                          //!< paper-exact permanent variant.
     Time mistrustDuration = Seconds(60.0); //!< Rehabilitation window for temporary mistrust (mistrustPermanent=false).
+
+    // ----- Section 5.1 extended cross-check (the network-wide neighbour-declaration check) -----
+    // Paper Section 5.1, right after Formula (8): "if x detects a remote node y advertising one
+    // of its neighbors z in the message TCy, but if z did not declare y as symmetric neighbor,
+    // then it must mistrust y". This is the ONLY rule in the paper that can fire at a node which
+    // is neither a neighbour of the attacker nor named by it, so it is what lets the paper's
+    // detection rate approach 100%: a TC floods the entire network, and every node holding a
+    // valid HELLO from a falsely-claimed selector can convict the originator.
+    bool enableCrossCheck = true;
+
+    // A witness's HELLO declaration may only be used while it is still valid (paper Section 4:
+    // "HELLO and TC messages have validity time, which indicates for how long time after
+    // reception a node must consider the information contained in the message as valid").
+    // 6 s == OLSR_NEIGHB_HOLD_TIME at the default 2 s HELLO interval.
+    Time helloValidity = Seconds(6.0);
+
+    // Paper Section 5.1: a single contradiction "may be a temporary situation where a group of
+    // nodes is at the beginning of a discovery process"; only "the node which continues to
+    // receive contradictory messages should mistrust" the generator. The same
+    // (accused, witness) contradiction must therefore be observed this many times.
+    uint32_t crossCheckPersistence = 2;
+
+    // Paper Section 5.1 applies the rule only "after an initialization process": suppress it for
+    // this long after the defense starts (a cold start restarts the clock).
+    Time consistencyGrace = Seconds(15.0);
+
+    // How long a contradiction streak stays alive. Section 5.1 convicts the node which
+    // CONTINUES to generate contradictions, so a streak that stops recurring for this long
+    // is a resolved transient and is forgotten rather than counted towards a conviction.
+    // 15 s == 3 TC intervals at the ns-3 default.
+    Time persistenceWindow = Seconds(15.0);
+
+    // Formula (9a): how long we wait for a selected MPR to originate a TC before
+    // concluding it generates none. OLSR_TOP_HOLD_TIME == 3 * tcInterval == 15 s, i.e.
+    // the lifetime the protocol itself assigns to topology information, and the same
+    // grace is applied from the moment the node became one of our MPRs.
+    Time tcAwaitingPeriod = Seconds(15.0);
+
+    // Individual rule enables (for ablation; all part of the paper's Section 5).
+    bool enableFormula8 = true;   //!< contradictory copies of one TC from two relays.
+    bool enableFormula9a = true;  //!< selected MPR that originates no TC at all.
+    bool enableFormula12 = true;  //!< two MPRs with nested neighbourhoods sharing a selector.
+
+    // Validity of a TC-derived selector set, used by Formula 12. OLSR_TOP_HOLD_TIME
+    // == 3 * tcInterval == 15 s is the lifetime the protocol itself assigns to
+    // topology information (paper Section 4: messages carry a validity time).
+    Time topologyValidity = Seconds(15.0);
+
+    // Retained for provenance only: a Section 6.2 proof is superseded by the next one
+    // from the same node rather than expiring on a timer (see ProveNeighborhood). A
+    // node issues a proof exactly when its neighbourhood changes, so a timer would make
+    // declarations unusable precisely in the settled networks where they matter most.
+    Time proofValidity = Seconds(30.0);
 };
 
 } // namespace olsr

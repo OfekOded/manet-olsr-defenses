@@ -686,7 +686,15 @@ RoutingProtocol::RecvOlsr(Ptr<Socket> socket)
                 NS_LOG_DEBUG(Simulator::Now().As(Time::S)
                              << " OLSR node " << m_mainAddress << " received HELLO message of size "
                              << messageHeader.GetSerializedSize());
-                ProcessHello(messageHeader, receiverIfaceAddr, senderIfaceAddr);
+                // Section 7: a HELLO with a non-zero hop count is a RETRANSMITTED one --
+                // an alert carrying somebody else's declaration as evidence. The defense
+                // hook above has already read it; processing it as a neighbourhood
+                // declaration here would build link state towards the relay instead of
+                // the originator and corrupt the link set, so it stops at the evidence.
+                if (messageHeader.GetHopCount() == 0)
+                {
+                    ProcessHello(messageHeader, receiverIfaceAddr, senderIfaceAddr);
+                }
                 break;
 
             case olsr::MessageHeader::TC_MESSAGE:
@@ -707,6 +715,14 @@ RoutingProtocol::RecvOlsr(Ptr<Socket> socket)
                              << " OLSR node " << m_mainAddress << " received HNA message of size "
                              << messageHeader.GetSerializedSize());
                 ProcessHna(messageHeader, senderIfaceAddr);
+                break;
+            case olsr::MessageHeader::PROOF_MESSAGE:
+                // Section 6.2: a signed neighbourhood declaration. It carries no routing
+                // information, so OLSR itself ignores it; only the defense reads it.
+                if (m_defenseStrategy)
+                {
+                    m_defenseStrategy->OnRecvProof(messageHeader.GetProof());
+                }
                 break;
 
             default:
@@ -729,7 +745,12 @@ RoutingProtocol::RecvOlsr(Ptr<Socket> socket)
 
         if (do_forwarding)
         {
-            if (messageHeader.GetMessageType() != olsr::MessageHeader::HELLO_MESSAGE)
+            // A HELLO is never forwarded (RFC 3626), with one exception: an alert
+            // (Section 7) retransmits control messages as evidence, and those must reach
+            // the whole network. Such a HELLO is marked by a non-zero hop count.
+            if (messageHeader.GetMessageType() != olsr::MessageHeader::PROOF_MESSAGE &&
+                (messageHeader.GetMessageType() != olsr::MessageHeader::HELLO_MESSAGE ||
+                 messageHeader.GetHopCount() > 0))
             {
                 ForwardDefault(messageHeader,
                                duplicated,
@@ -1787,6 +1808,37 @@ RoutingProtocol::ForwardDefault(olsr::MessageHeader olsrMessage,
 }
 
 void
+RoutingProtocol::SendProof(const olsr::MessageHeader::Proof& proof)
+{
+    olsr::MessageHeader msg;
+    msg.SetVTime(OLSR_NEIGHB_HOLD_TIME);
+    msg.SetOriginatorAddress(m_mainAddress);
+    msg.SetTimeToLive(1); // Section 6.2 footnote 1: never distributed through the network.
+    msg.SetHopCount(0);
+    msg.SetMessageSequenceNumber(GetMessageSequenceNumber());
+    msg.GetProof() = proof;
+    QueueMessage(msg, JITTER);
+}
+
+void
+RoutingProtocol::BroadcastTrustAlert(const std::vector<olsr::MessageHeader>& evidence)
+{
+    for (olsr::MessageHeader msg : evidence)
+    {
+        // Retransmitted verbatim: originator and payload are the evidence and must not
+        // be altered. Only the fields that govern propagation are set, and a fresh
+        // sequence number is taken so the network's duplicate suppression does not
+        // discard a message some nodes have already seen -- the point of the alert is
+        // to reach the ones that have NOT.
+        msg.SetMessageSequenceNumber(GetMessageSequenceNumber());
+        msg.SetTimeToLive(255);
+        msg.SetHopCount(1); // >0 marks it as relayed EVIDENCE, not a local declaration.
+        msg.SetVTime(OLSR_NEIGHB_HOLD_TIME);
+        QueueMessage(msg, JITTER);
+    }
+}
+
+void
 RoutingProtocol::QueueMessage(const olsr::MessageHeader& message, Time delay)
 {
     m_queuedMessages.push_back(message);
@@ -1830,8 +1882,21 @@ RoutingProtocol::SendQueuedMessages()
 
     MessageList msglist;
 
+    // RFC 3626 section 3.1: a packet should fit the link MTU. Aggregating purely by
+    // message count can build one that does not, and a fragmented OLSR packet cannot be
+    // parsed from a single frame. Flush on either bound.
+    static constexpr uint32_t OLSR_MAX_PACKET_BYTES = 1200;
     for (auto message = m_queuedMessages.begin(); message != m_queuedMessages.end(); message++)
     {
+        const uint32_t msgBytes = message->GetSerializedSize();
+        if (numMessages > 0 &&
+            packet->GetSize() + msgBytes > OLSR_MAX_PACKET_BYTES)
+        {
+            SendPacket(packet, msglist);
+            msglist.clear();
+            numMessages = 0;
+            packet = Create<Packet>();
+        }
         Ptr<Packet> p = Create<Packet>();
         p->AddHeader(*message);
         packet->AddAtEnd(p);
@@ -2136,6 +2201,14 @@ RoutingProtocol::SendHello()
 
     NS_LOG_DEBUG("OLSR HELLO message size: " << int(msg.GetSerializedSize()) << " (with "
                                              << int(linkMessages.size()) << " link messages)");
+
+    // Section 6: hand the defense the HELLO we are actually transmitting, so it can
+    // publish the declaration that our neighbours' proofs will be checked against.
+    if (m_defenseStrategy)
+    {
+        m_defenseStrategy->OnHelloGenerated(hello);
+    }
+
     QueueMessage(msg, JITTER);
 }
 

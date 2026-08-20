@@ -192,6 +192,9 @@ MessageHeader::GetSerializedSize() const
     case HNA_MESSAGE:
         size += m_message.hna.GetSerializedSize();
         break;
+    case PROOF_MESSAGE:
+        size += m_message.proof.GetSerializedSize();
+        break;
     default:
         NS_ASSERT(false);
     }
@@ -238,6 +241,9 @@ MessageHeader::Print(std::ostream& os) const
     case HNA_MESSAGE:
         m_message.hna.Print(os);
         break;
+    case PROOF_MESSAGE:
+        m_message.proof.Print(os);
+        break;
     default:
         NS_ASSERT(false);
     }
@@ -269,6 +275,9 @@ MessageHeader::Serialize(Buffer::Iterator start) const
     case HNA_MESSAGE:
         m_message.hna.Serialize(i);
         break;
+    case PROOF_MESSAGE:
+        m_message.proof.Serialize(i);
+        break;
     default:
         NS_ASSERT(false);
     }
@@ -280,7 +289,7 @@ MessageHeader::Deserialize(Buffer::Iterator start)
     uint32_t size;
     Buffer::Iterator i = start;
     m_messageType = (MessageType)i.ReadU8();
-    NS_ASSERT(m_messageType >= HELLO_MESSAGE && m_messageType <= HNA_MESSAGE);
+    NS_ASSERT(m_messageType >= HELLO_MESSAGE && m_messageType <= PROOF_MESSAGE);
     m_vTime = i.ReadU8();
     m_messageSize = i.ReadNtohU16();
     m_originatorAddress = Ipv4Address(i.ReadNtohU32());
@@ -301,6 +310,9 @@ MessageHeader::Deserialize(Buffer::Iterator start)
         break;
     case HNA_MESSAGE:
         size += m_message.hna.Deserialize(i, m_messageSize - OLSR_MSG_HEADER_SIZE);
+        break;
+    case PROOF_MESSAGE:
+        size += m_message.proof.Deserialize(i, m_messageSize - OLSR_MSG_HEADER_SIZE);
         break;
     default:
         NS_ASSERT(false);
@@ -538,6 +550,64 @@ MessageHeader::Tc::Deserialize(Buffer::Iterator start, uint32_t messageSize)
         this->neighborAddresses.emplace_back(i.ReadNtohU32());
     }
 
+    return messageSize;
+}
+
+// ---------------- OLSR PROOF Message (Section 6.2) ---------------
+
+uint32_t
+MessageHeader::Proof::GetSerializedSize() const
+{
+    // originator (4) + pubKey (8) + signature (8) + count (2) + 4 per declared address.
+    return 22 + declared.size() * IPV4_ADDRESS_SIZE;
+}
+
+void
+MessageHeader::Proof::Print(std::ostream& os) const
+{
+    os << " Proof of " << originator << " declaring " << declared.size()
+       << " symmetric neighbour(s)";
+}
+
+void
+MessageHeader::Proof::Serialize(Buffer::Iterator start) const
+{
+    Buffer::Iterator i = start;
+    i.WriteHtonU32(originator.Get());
+    i.WriteHtonU64(pubKey);
+    i.WriteHtonU64(signature);
+    i.WriteHtonU16(static_cast<uint16_t>(declared.size()));
+    for (const auto& a : declared)
+    {
+        i.WriteHtonU32(a.Get());
+    }
+}
+
+uint32_t
+MessageHeader::Proof::Deserialize(Buffer::Iterator start, uint32_t messageSize)
+{
+    Buffer::Iterator i = start;
+    declared.clear();
+    originator = Ipv4Address();
+    pubKey = 0;
+    signature = 0;
+    if (messageSize < 22)
+    {
+        // Truncated or malformed: return an empty proof rather than aborting. It cannot
+        // pass signature verification, so the defense drops it like any other bad proof.
+        return messageSize;
+    }
+    originator = Ipv4Address(i.ReadNtohU32());
+    pubKey = i.ReadNtohU64();
+    signature = i.ReadNtohU64();
+    const uint16_t n = i.ReadNtohU16();
+    // Trust the length field only as far as the message actually extends.
+    const uint32_t maxEntries = (messageSize - 22) / IPV4_ADDRESS_SIZE;
+    const uint32_t count = (n <= maxEntries) ? n : maxEntries;
+    for (uint32_t k = 0; k < count; ++k)
+    {
+        declared.push_back(Ipv4Address(i.ReadNtohU32()));
+    }
     return messageSize;
 }
 

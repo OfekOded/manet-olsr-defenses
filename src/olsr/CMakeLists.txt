@@ -10,6 +10,7 @@ build_lib(
     model/defense/olsr-alert-distributor.cc
     model/defense/olsr-consistency-rules.cc
     model/defense/olsr-forward-monitor.cc
+    model/defense/olsr-provable-identity.cc
     model/defense/olsr-trust-state.cc
   HEADER_FILES
     helper/olsr-helper.h

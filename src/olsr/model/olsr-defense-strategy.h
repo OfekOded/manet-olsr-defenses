@@ -31,6 +31,11 @@ public:
   virtual bool IsMalicious(Ipv4Address addr) = 0;
   virtual std::set<Ipv4Address> GetBlacklist() const = 0;
 
+  /// Nodes under PARTIAL mistrust, if the strategy distinguishes them (Adnane et al.
+  /// Table 3 reports exact and partial detection separately). Defaults to empty for
+  /// strategies with a single verdict class.
+  virtual std::set<Ipv4Address> GetPartialMistrusted() const { return {}; }
+
   // --- Control Plane Hooks ---
   virtual void OnRecvHello(Ipv4Address senderAddress,
                            Ptr<const Packet> packet, 
@@ -43,6 +48,13 @@ public:
                          const MessageHeader::Tc& tc) = 0;
 
   virtual void OnTcGenerated(const MessageHeader::Tc& tc) = 0;
+
+  /// This node just built its own HELLO. Needed by Section 6 so a node can publish
+  /// the neighbourhood declaration its peers will have to prove against.
+  virtual void OnHelloGenerated(const MessageHeader::Hello& hello) { (void)hello; }
+
+  /// A Section 6.2 proof of neighbourhood arrived.
+  virtual void OnRecvProof(const MessageHeader::Proof& proof) { (void)proof; }
 
   // --- Data Plane Hooks ---
   virtual void OnDataPacketReceived(Ptr<const Packet> packet,

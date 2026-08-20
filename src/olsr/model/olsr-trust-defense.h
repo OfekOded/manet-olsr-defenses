@@ -29,7 +29,10 @@
 #include "ns3/nstime.h"
 
 #include <cstdint>
+#include <map>
 #include <memory>
+#include <utility>
+#include <vector>
 
 namespace ns3
 {
@@ -66,6 +69,7 @@ class OlsrTrustDefense : public OlsrDefenseStrategy
 
     bool IsMalicious(Ipv4Address addr) override;
     std::set<Ipv4Address> GetBlacklist() const override;
+    std::set<Ipv4Address> GetPartialMistrusted() const override;
 
     void OnRecvHello(Ipv4Address senderAddress,
                      Ptr<const Packet> packet,
@@ -76,6 +80,8 @@ class OlsrTrustDefense : public OlsrDefenseStrategy
                   const MessageHeader& msg,
                   const MessageHeader::Tc& tc) override;
     void OnTcGenerated(const MessageHeader::Tc& tc) override;
+    void OnHelloGenerated(const MessageHeader::Hello& hello) override;
+    void OnRecvProof(const MessageHeader::Proof& proof) override;
 
     void OnDataPacketReceived(Ptr<const Packet> packet,
                               Ipv4Address source,
@@ -116,7 +122,7 @@ class OlsrTrustDefense : public OlsrDefenseStrategy
                                const ConsistencyProof& proof,
                                Time now);
     /// Accept a (re-verified) alert from the bus -> mistrust the accused.
-    void OnAlertReceived(Ipv4Address accused, const std::string& formula, Ipv4Address accuser, Time now);
+    void OnAlertReceived(const ConsistencyProof& proof, Ipv4Address accuser, Time now);
     /// Whether a consistency formula carries a third-party-verifiable proof (alert set {6,7,8,12}).
     static bool IsAnnounceable(const std::string& formula);
 
@@ -133,6 +139,13 @@ class OlsrTrustDefense : public OlsrDefenseStrategy
     std::unique_ptr<OlsrAlertDistributor> m_alert;
 
     // one-shot hint: the next OnDataPacketForwarded is a RELAY of this UID, not an origination.
+    uint32_t m_proofCursor; //!< round-robin over held proofs when relaying (ProofB).
+    /// The neighbourhood we last proved, so a proof is emitted only when a link is
+    /// established or lost (paper Section 6.2: "the proof is sent only once").
+    std::vector<Ipv4Address> m_lastDeclared;
+    bool m_declaredEverSent;
+    /// Section 5.1 persistence for Formula 14, keyed by (claimer, claimed neighbour).
+    std::map<std::pair<Ipv4Address, Ipv4Address>, std::pair<uint32_t, Time>> m_f14Streaks;
     bool m_relayHintActive;
     uint64_t m_relayHintUid;
 
@@ -147,6 +160,16 @@ class OlsrTrustDefense : public OlsrDefenseStrategy
     bool m_responseEnabled;
     bool m_mistrustPermanent;
     Time m_mistrustDuration;
+    bool m_enableCrossCheck;
+    Time m_helloValidity;
+    uint32_t m_crossCheckPersistence;
+    Time m_consistencyGrace;
+    Time m_persistenceWindow;
+    Time m_tcAwaitingPeriod;
+    Time m_topologyValidity;
+    bool m_enableFormula8;
+    bool m_enableFormula9a;
+    bool m_enableFormula12;
     bool m_enableForwardMonitor;
     bool m_enableConsistencyRules;
     bool m_enableProvableIdentity;
