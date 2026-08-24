@@ -1,5 +1,37 @@
 /* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
 /*
+ * CHANGELOG (hop-distance gate removal + prologue only for mixed windows):
+ *   TRF-006: SUPERSEDES the minimum-hop-distance part of TRF-003/TRF-005. The
+ *            requirement that the sender and the receiver be at least
+ *            --minHops (3) OLSR hops apart is REMOVED entirely: the t=60
+ *            acceptance gate (renamed AssertMinHops -> AssertRouteExists) now
+ *            only rejects a run when OLSR has no route for a flow at all
+ *            ("no_route_to_victim"); the "too_close" rejection, the --minHops
+ *            CLI flag, the (minHops-1)*radioRange geometric filter in
+ *            SelectDataFlowPairs and the min_hops_required column of runs.csv
+ *            are all gone. Runs that previous versions rejected as too_close
+ *            are now ACCEPTED, so the accepted-run population -- and hence any
+ *            dataset -- differs from earlier harness versions.
+ *   WIN-003: SUPERSEDES the WIN-002 timeline for the CANONICAL window order.
+ *            The 60 s neutral prologue that WIN-002 added in front of slot 0
+ *            is needed only when the window order is randomized
+ *            (--randomWindowOrder), because slot 0 may then be an attack
+ *            and/or defense scenario while the acceptance gates must run in
+ *            the neutral state. In canonical order slot 0 is ALWAYS
+ *            "baseline" (attack OFF, defense OFF), so its own 60 s slot
+ *            stabilization already is that neutral prologue and the extra
+ *            60 s were pure duplication. Hence:
+ *              canonical order : SIMULATION_END = 4 x 100 = 400 s
+ *              mixed  order    : SIMULATION_END = 60 + 4 x 100 = 460 s
+ *            The acceptance gates keep firing at a fixed t = 60 s in BOTH
+ *            modes, and the network is neutral at that instant in both.
+ *            Slot/window timings are now runtime values derived from
+ *            g_initialStabilization instead of compile-time constants.
+ *   Both changes are applied identically to every harness (trust / watchdog /
+ *   dcfm / fpnt). HARNESS_VERSION 2.4.0 -> 2.5.0 and HEADER_VERSION 4 -> 5
+ *   (runs.csv loses min_hops_required).
+ */
+/*
  * FPNT-OLSR Evaluation Harness  (post-audit Phase 2 rewrite)
  * ==========================================================
  *
@@ -227,8 +259,8 @@ NS_LOG_COMPONENT_DEFINE ("OlsrTrustEvalMitigation");
 // ============================================================================
 // Version markers (RUN-006 / reproducibility)
 // ============================================================================
-#define HARNESS_VERSION "2.4.0"
-#define HEADER_VERSION  4
+#define HARNESS_VERSION "2.5.0"
+#define HEADER_VERSION  5
 
 // ============================================================================
 // Phase / window timing constants  (WIN-002: generalized, shared by both
@@ -236,32 +268,50 @@ NS_LOG_COMPONENT_DEFINE ("OlsrTrustEvalMitigation");
 // ============================================================================
 //
 // TIMELINE
-//   t in [0, INITIAL_STABILIZATION)        : neutral stabilization
-//                                            (attack OFF, defense OFF). The
-//                                            acceptance gates fire at
-//                                            t = INITIAL_STABILIZATION in
-//                                            this neutral state, so the
+//   t in [0, g_initialStabilization)       : neutral prologue -- MIXED
+//                                            (randomized) window order only;
+//                                            EMPTY in canonical order
+//                                            (WIN-003). The acceptance gates
+//                                            fire at t = 60 s in either mode,
+//                                            in the neutral state, so the
 //                                            accept/reject decision is
 //                                            independent of window order.
 //   For slot k in [0, NUM_SLOTS):
-//     transition  @ INITIAL_STABILIZATION + k*SLOT_DURATION
+//     transition  @ g_initialStabilization + k*SLOT_DURATION
 //     stabilize    [transition, transition + SLOT_STABILIZATION)
 //     measurement  [transition + SLOT_STABILIZATION,
 //                   transition + SLOT_STABILIZATION + MEASUREMENT_DURATION)
 //
-// Fixed (canonical) and randomized modes share this timeline; they differ
-// only in which scenario is assigned to which slot (see g_scenarioOrder).
-// Every window gets an identical 60 s post-transition stabilization.
-static constexpr double INITIAL_STABILIZATION  = 60.0;
+// Fixed (canonical) and randomized modes share this timeline; they differ in
+// which scenario is assigned to which slot (see g_scenarioOrder) and in the
+// length of the neutral prologue. Every window gets an identical 60 s
+// post-transition stabilization.
+//
+// WIN-003: the neutral prologue exists ONLY for the mixed (randomized) order,
+// where slot 0 may be an attack and/or defense scenario. In canonical order
+// slot 0 is ALWAYS "baseline" (attack OFF, defense OFF), so its own 60 s slot
+// stabilization already IS a neutral prologue and a second one would only make
+// the run 60 s longer for nothing:
+//   canonical order : g_initialStabilization = 0  -> SIMULATION_END = 400 s
+//   mixed     order : g_initialStabilization = 60 -> SIMULATION_END = 460 s
+// In BOTH modes the acceptance gates fire at ACCEPTANCE_GATE_TIME = 60 s, and
+// in both modes the network is still in the neutral state at that instant.
+static constexpr double MIXED_INITIAL_STABILIZATION = 60.0;
 static constexpr double SLOT_STABILIZATION     = 60.0;
 static constexpr double MEASUREMENT_DURATION   = 40.0;
 static constexpr double SLOT_DURATION          =
     SLOT_STABILIZATION + MEASUREMENT_DURATION;          // 100.0
 static constexpr int    NUM_SLOTS              = 4;
+static constexpr double ACCEPTANCE_GATE_TIME   = 60.0;
 
-static constexpr double SIMULATION_END  =
-    INITIAL_STABILIZATION + NUM_SLOTS * SLOT_DURATION;  // 60 + 400 = 460
-static constexpr double SIMULATION_TAIL = SIMULATION_END + 2.0;  // 462
+// Length of the neutral prologue for THIS run. Fixed once in main() from
+// --randomWindowOrder, before anything is scheduled (WIN-003).
+static double g_initialStabilization = 0.0;
+
+static double SimulationEnd ()
+{ return g_initialStabilization + NUM_SLOTS * SLOT_DURATION; }   // 400 or 460
+static double SimulationTail ()
+{ return SimulationEnd () + 2.0; }                               // 402 or 462
 
 static constexpr double UDP_START_OFFSET_IN_WINDOW = 4.0;
 static constexpr uint32_t UDP_PACKETS_PER_WINDOW   = 18;
@@ -285,10 +335,10 @@ static constexpr uint16_t UDP_PORT                 = 80;
 //   * UDP_EXPECTED_PER_WINDOW = 1 x 18 = 18, so the oracle's
 //     udp_expected_in_window column and the udp_loss_percent denominator are
 //     computed against 18;
-//   * the t=60 AssertMinHops() gate arbitrates that ONE pair and rejects the
-//     run ("too_close") unless the OLSR distance node1 -> node0 is at least
-//     --minHops (default 3) hops, i.e. in every ACCEPTED run the sender and
-//     the receiver are at least 3 hops apart;
+//   * the t=60 AssertRouteExists() gate arbitrates that ONE pair and rejects
+//     the run ("no_route_to_victim") only when OLSR has no route at all from
+//     node1 to node0. TRF-006: there is NO minimum hop-distance requirement
+//     any more -- sender and receiver may be any number of hops apart;
 //   * the offered application load is 18 x 512 B per 40 s window
 //     (~1.8 kb/s) -- far below channel saturation.
 static constexpr uint32_t NUM_DATA_FLOWS = 1;
@@ -302,12 +352,13 @@ static_assert (NUM_DATA_FLOWS >= 1,
 static constexpr uint32_t UDP_EXPECTED_PER_WINDOW =
     NUM_DATA_FLOWS * UDP_PACKETS_PER_WINDOW;
 
-// Slot timing helpers (callable with a runtime slot index).
-static constexpr double SlotTransitionTime (int k)
-{ return INITIAL_STABILIZATION + k * SLOT_DURATION; }
-static constexpr double SlotWindowStart (int k)
-{ return INITIAL_STABILIZATION + k * SLOT_DURATION + SLOT_STABILIZATION; }
-static constexpr double SlotWindowEnd (int k)
+// Slot timing helpers (callable with a runtime slot index). They read
+// g_initialStabilization, which main() fixes before any event is scheduled.
+static double SlotTransitionTime (int k)
+{ return g_initialStabilization + k * SLOT_DURATION; }
+static double SlotWindowStart (int k)
+{ return g_initialStabilization + k * SLOT_DURATION + SLOT_STABILIZATION; }
+static double SlotWindowEnd (int k)
 { return SlotWindowStart (k) + MEASUREMENT_DURATION; }
 
 // ============================================================================
@@ -389,14 +440,12 @@ static constexpr uint32_t UDP_CLIENT_NODE_ID = 1;
 //     NUM_DATA_FLOWS distinct sources and NUM_DATA_FLOWS distinct
 //     destinations, maximal topological diversity, exactly one UdpServer
 //     per node,
-//   * the straight-line distance of every selected pair exceeds
-//     (minHops-1)*radioRange. Under RangePropagationLossModel one hop covers
-//     at most radioRange metres, so ANY route between such a pair --
-//     including the OLSR route checked by the t=60 gate -- must have at
-//     least minHops hops. The geometric filter therefore guarantees the
-//     extended AssertMinHops gate passes for the added pairs whenever a
-//     route exists at all (and AssertConnectivity already rejects runs in
-//     which any route is missing).
+//   * TRF-006: there is no longer any lower bound on the straight-line
+//     distance of a selected pair. The geometric (minHops-1)*radioRange
+//     filter went away together with the minimum-hop-distance gate; the only
+//     remaining acceptance criteria are that a route exists for every flow
+//     (AssertRouteExists) and that the topology is connected
+//     (AssertConnectivity).
 //
 // Determinism (mirror of WIN-001): every draw comes from a SEPARATE
 // std::mt19937 (seeded by the caller from --seed and --run) using the same
@@ -412,7 +461,7 @@ static constexpr uint32_t UDP_CLIENT_NODE_ID = 1;
 static std::vector<std::pair<uint32_t, uint32_t>>
 SelectDataFlowPairs (NodeContainer& nodes,
                      const std::set<uint32_t>& attackerSet,
-                     uint32_t minHops, double radioRange, uint32_t pairSeed)
+                     uint32_t pairSeed)
 {
   std::vector<std::pair<uint32_t, uint32_t>> flows;
   flows.emplace_back (UDP_CLIENT_NODE_ID, UDP_SERVER_NODE_ID);  // legacy flow 0
@@ -430,8 +479,9 @@ SelectDataFlowPairs (NodeContainer& nodes,
     const double dz = pos[a].z - pos[b].z;
     return std::sqrt (dx * dx + dy * dy + dz * dz);
   };
-  const double minDist =
-      (minHops >= 1) ? (minHops - 1) * radioRange : 0.0;
+  // TRF-006: no geometric lower bound any more (the minimum-hop-distance
+  // requirement is gone), so any two distinct endpoints are acceptable.
+  const double minDist = 0.0;
 
   // Candidate endpoints: everything except attackers and the endpoints
   // already consumed by flow 0 (nodes 0 and 1).
@@ -478,11 +528,9 @@ SelectDataFlowPairs (NodeContainer& nodes,
           }
       if (!made)
         {
-          // No remaining pair satisfies the geometric bound (essentially
-          // impossible for the default 50-node 750x1000 m grid). Fall back
-          // to the maximum-distance remaining pair; the extended t=60 OLSR
-          // gate stays the single acceptance arbiter and rejects the run
-          // ("too_close") if the pair is genuinely too close.
+          // Unreachable with the TRF-006 zero bound; kept for safety, as it
+          // could only trigger if two candidates were exactly co-located.
+          // Falls back to the maximum-distance remaining pair.
           std::size_t bi = 0, bj = 1;
           double best = -1.0;
           for (std::size_t a = 0; a < cand.size (); ++a)
@@ -527,7 +575,6 @@ struct SimulationConfig
   uint32_t    spoofCount         = 5;
   double      attackerJitter     = 25.0;
 
-  uint32_t    minHops            = 3;
 
   // Trust-based OLSR defense knobs (Adnane et al. 2013). Defaults mirror the
   // defense's canonical OlsrTrustDefenseConfig struct. These are the BASE
@@ -761,8 +808,7 @@ static Ptr<olsr::RoutingProtocol> GetOlsrProtocol (Ptr<Node> node);
 static std::vector<uint32_t>      WalkOlsrPath   (NodeContainer& nodes,
                                                   Ipv4Address src,
                                                   Ipv4Address dst);
-static void                       AssertMinHops  (NodeContainer* cont,
-                                                  uint32_t minHops);
+static void                       AssertRouteExists (NodeContainer* cont);
 static void                       CheckAndReportConnectivity (NodeContainer* cont);
 static void                       ResetOlsrCounters ();
 
@@ -772,7 +818,7 @@ static void                       ResetOlsrCounters ();
 // ============================================================================
 static const char* RUNS_HEADER =
   "run_id,rng_run,rng_seed,harness_version,header_version,"
-  "n_nodes,grid_x,grid_y,mobility,radio_range,min_hops_required,"
+  "n_nodes,grid_x,grid_y,mobility,radio_range,"
   "num_attackers,attackers_list,spoof_count,attacker_jitter,"
   "defense_variant,enable_forward_monitor,enable_consistency_rules,"
   "enable_alert_distribution,forward_timeout_s,check_interval_s,"
@@ -1346,17 +1392,17 @@ AssertConnectivity (NodeContainer* cont)
 }
 
 static void
-AssertMinHops (NodeContainer* cont, uint32_t minHops)
+AssertRouteExists (NodeContainer* cont)
 {
   if (g_runRejected) return;
   if (cont->GetN () < 2) return;
-  // TRF-003: the gate now checks EVERY selected flow pair. g_flowPairs[0]
-  // is the legacy node1 -> node0 pair, so its check -- and the
-  // run-acceptance behavior of every previously accepted seed -- is
-  // unchanged; the additional pairs satisfy the geometric >= minHops bound
-  // by construction, so they can only reject here in the (essentially
-  // impossible) selection-fallback case. Rejection reason strings are
-  // UNCHANGED.
+  // TRF-003: the gate checks EVERY selected flow pair. g_flowPairs[0] is the
+  // legacy node1 -> node0 pair.
+  // TRF-006: the minimum-hop-distance requirement is GONE -- the only thing
+  // this gate still rejects is a flow for which OLSR has no route at all
+  // ("no_route_to_victim"). The hop count is measured and logged purely for
+  // the record; it is no longer an acceptance criterion, and the "too_close"
+  // rejection reason no longer exists.
   for (std::size_t f = 0; f < g_flowPairs.size (); ++f)
     {
       const uint32_t srcId = g_flowPairs[f].first;
@@ -1397,21 +1443,9 @@ AssertMinHops (NodeContainer* cont, uint32_t minHops)
           Simulator::Stop ();
           return;
         }
-      if (distance < minHops)
-        {
-          std::cout << "*** Flow " << f << " (" << srcId << " -> " << dstId
-                    << ") too close: " << distance
-                    << " hops, need at least " << minHops << ". Terminated."
-                    << std::endl;
-          g_runRejected = true;
-          g_rejectReason = "too_close";
-          g_rejectedAtSec = Simulator::Now ().GetSeconds ();
-          Simulator::Stop ();
-          return;
-        }
       std::cout << "Distance flow " << f << " (" << srcId << " -> " << dstId
-                << ") at t=60: " << distance << " hops (>= " << minHops
-                << " required). OK." << std::endl;
+                << ") at t=60: " << distance << " hops (no minimum required)."
+                << std::endl;
     }
 }
 
@@ -1772,8 +1806,10 @@ static void PrintDefenseStateSizes ();
 // WIN-001: apply the (attack, defense) state required by the scenario assigned
 // to `slot`, toggling only what actually changes from the currently-applied
 // state. Scheduled at each slot transition (t = SlotTransitionTime(slot)).
-// The slot-0 transition fires at t=INITIAL_STABILIZATION, immediately AFTER
-// the acceptance gates (which run in the neutral state) by scheduling order.
+// The slot-0 transition fires at t=g_initialStabilization: t=0 in canonical
+// order (slot 0 is the neutral "baseline" scenario, so the gates still see the
+// neutral state at t=60), and t=60 in mixed order -- there immediately AFTER
+// the acceptance gates by scheduling order (WIN-003).
 static void
 ApplyScenarioState (NodeContainer nodes, std::vector<uint32_t> attackerIds,
                     uint32_t spoofCount, int slot)
@@ -2180,7 +2216,6 @@ PromoteStagedRows (const SimulationConfig& cfg, double wallClockSec)
           << cfg.gridX << "," << cfg.gridY << ","
           << (cfg.bMobility ? 1 : 0) << ","
           << cfg.radioRange << ","
-          << cfg.minHops << ","
           << numAttackers << "," << attackersPipe << ","
           << cfg.spoofCount << "," << cfg.attackerJitter << ","
           << defenseVariant << ","
@@ -2431,8 +2466,6 @@ main (int argc, char* argv[])
   cmd.AddValue ("maliciousNodes",  "Comma-separated malicious node IDs",cfg.maliciousNodesList);
   cmd.AddValue ("spoofCount",      "Spoofed links per attacker",        cfg.spoofCount);
   cmd.AddValue ("attackerJitter",  "Random offset (m) around centre",   cfg.attackerJitter);
-  cmd.AddValue ("minHops",         "Min OLSR hops from src to dst @ t=60",
-                                                                       cfg.minHops);
   // Trust-based OLSR defense knobs (map to OlsrTrustDefense attributes).
   cmd.AddValue ("enableForwardMonitor",    "Formula-10 black-hole forward monitor",
                                                                          cfg.enableForwardMonitor);
@@ -2514,6 +2547,14 @@ main (int argc, char* argv[])
   for (int k = 0; k < NUM_SLOTS; ++k) g_scenarioOrder[k] = k;
   if (g_randomWindowOrder)
     DeterministicShuffle (g_scenarioOrder, cfg.run);
+
+  // WIN-003: the 60 s neutral prologue is needed ONLY for the mixed window
+  // order (slot 0 may then carry attack and/or defense). Canonical order runs
+  // the plain 4 x 100 s = 400 s timeline, because its slot 0 IS the neutral
+  // "baseline" scenario. Must be fixed HERE -- before any slot time is
+  // computed or any event scheduled.
+  g_initialStabilization =
+      g_randomWindowOrder ? MIXED_INITIAL_STABILIZATION : 0.0;
 
   CreateOutputDirectories (cfg);
   WriteDefenseParamsOnce (cfg);   // GEN-004: provenance sidecar (write-once)
@@ -2709,8 +2750,7 @@ main (int argc, char* argv[])
   // pure, portable function of (seed, run) and reproduce bit-identically on
   // any standard library -- the same guarantee as the WIN-001 window shuffle.
   const uint32_t pairSeed = cfg.seed * 2654435761u + cfg.run;
-  g_flowPairs = SelectDataFlowPairs (nodes, attackerSet, cfg.minHops,
-                                     cfg.radioRange, pairSeed);
+  g_flowPairs = SelectDataFlowPairs (nodes, attackerSet, pairSeed);
 
   // TRF-002: flow-destination IP -> destination MAC (PHY last-hop delivery).
   g_flowDstMacByIp.clear ();
@@ -2734,7 +2774,7 @@ main (int argc, char* argv[])
       ApplicationContainer serverApp =
           serverHelper.Install (nodes.Get (fp.second));
       serverApp.Start (Seconds (0.0));
-      serverApp.Stop  (Seconds (SIMULATION_TAIL));
+      serverApp.Stop  (Seconds (SimulationTail ()));
       Ptr<UdpServer> srv = DynamicCast<UdpServer> (serverApp.Get (0));
       NS_ASSERT_MSG (srv, "Failed to retrieve UdpServer instance for flow dst "
                      << fp.second);
@@ -2773,36 +2813,43 @@ main (int argc, char* argv[])
   for (int slot = 0; slot < NUM_SLOTS; ++slot)
     installWindow (SlotWindowStart (slot), SlotWindowEnd (slot));
 
-  Simulator::Schedule (Seconds (SIMULATION_END - 1.0), &ReportNumReceivedPackets);
+  Simulator::Schedule (Seconds (SimulationEnd () - 1.0),
+                       &ReportNumReceivedPackets);
 
   // ----- 7. FlowMonitor + per-slot scheduling (WIN-002) --------------------
   g_flowMonitor = g_flowHelper.InstallAll ();
 
-  // Scheduling order at t = INITIAL_STABILIZATION (60 s) matters. ns-3 fires
+  // Scheduling order at t = ACCEPTANCE_GATE_TIME (60 s) matters. ns-3 fires
   // same-timestamp events in insertion order, so we schedule:
   //   (1) the topology probe at t=59 (strictly before the gates),
-  //   (2) the acceptance gates at t=60 -- they run in the NEUTRAL state
-  //       because slot 0's scenario state is applied only afterwards,
-  //   (3) the per-slot scenario-state transitions (slot 0 also at t=60,
-  //       inserted AFTER the gates so the gates see the neutral state),
-  //   (4) the per-slot measurement brackets.
+  //   (2) the acceptance gates at t=60. They run in the NEUTRAL state in BOTH
+  //       window orders: with the mixed order the whole [0,60) prologue is
+  //       neutral and slot 0's scenario state is applied only afterwards;
+  //       with the canonical order slot 0 IS "baseline" (attack OFF, defense
+  //       OFF) and was applied at t=0, so t=60 is neutral there as well,
+  //   (3) the per-slot scenario-state transitions -- inserted AFTER the gates
+  //       so that a slot 0 transition landing on t=60 (mixed order) still
+  //       sees the neutral state,
+  //   (4) the per-slot measurement brackets -- also after the gates, so that
+  //       slot 0's window opening at t=60 (canonical order) is short-circuited
+  //       by a rejection.
 
   // (1) Topology probe (before the gates).
-  Simulator::Schedule (Seconds (59.0),
+  Simulator::Schedule (Seconds (ACCEPTANCE_GATE_TIME - 1.0),
                        &RecordTopologyProbe, &nodes, cfg.radioRange);
 
   // (2) Acceptance gates in the neutral (attack OFF, defense OFF) state.
   //     A rejection here short-circuits every later handler.
-  Simulator::Schedule (Seconds (INITIAL_STABILIZATION),
+  Simulator::Schedule (Seconds (ACCEPTANCE_GATE_TIME),
                        &AssertConnectivity, &nodes);
-  Simulator::Schedule (Seconds (INITIAL_STABILIZATION),
-                       &AssertMinHops, &nodes, cfg.minHops);
-  Simulator::Schedule (Seconds (INITIAL_STABILIZATION),
+  Simulator::Schedule (Seconds (ACCEPTANCE_GATE_TIME),
+                       &AssertRouteExists, &nodes);
+  Simulator::Schedule (Seconds (ACCEPTANCE_GATE_TIME),
                        &CheckAndReportConnectivity, &nodes);
 
-  // (3) Per-slot scenario-state transitions. Slot 0 transitions at t=60
-  //     (immediately AFTER the gates by insertion order); subsequent slots
-  //     at 60 + k*SLOT_DURATION.
+  // (3) Per-slot scenario-state transitions, at
+  //     g_initialStabilization + k*SLOT_DURATION (so slot 0 fires at t=0 in
+  //     canonical order and at t=60 in mixed order).
   for (int slot = 0; slot < NUM_SLOTS; ++slot)
     Simulator::Schedule (Seconds (SlotTransitionTime (slot)),
                          &ApplyScenarioState, nodes, attackerIds,
@@ -2848,7 +2895,7 @@ main (int argc, char* argv[])
   // ----- 9. Run -----------------------------------------------------------
   PrintSimStats (cfg, attackerIds);
 
-  Simulator::Stop (Seconds (SIMULATION_TAIL));
+  Simulator::Stop (Seconds (SimulationTail ()));
   Simulator::Run ();
   Simulator::Destroy ();
 
