@@ -140,3 +140,60 @@ Validation
 **********
 
 The code validation has been done through Wireshark message compliance and unit testings.
+
+
+Security research extensions (this fork)
+***************************************
+
+This is not stock ns-3. This copy of the OLSR module has been extended for
+research into trust-based defenses against routing attacks, and the additions
+are **not part of upstream ns-3**. If you are looking for the OLSR protocol as
+released by nsnam, everything above this section describes it; everything below
+is local.
+
+Attacker model
+++++++++++++++
+
+``RoutingProtocol`` can be configured to behave maliciously. The additions are
+marked in ``olsr-routing-protocol.cc`` with ``// SECURITY RESEARCH EXTENSION:``
+banners. Two attributes control them:
+
+* ``IsMalicious`` (boolean, default false): enable the attack behaviour.
+* ``SpoofedLinksCount`` (unsigned, default 5): how many links to fabricate.
+
+A malicious node advertises ``WILL_ALWAYS`` willingness, claims symmetric links
+to real addresses it has learned passively but is not connected to (in both
+HELLO and TC), inflates its ANSN so its bogus topology wins, and then drops the
+data traffic that the resulting routes send through it.
+
+Defense strategies
+++++++++++++++++++
+
+``RoutingProtocol`` holds one ``OlsrDefenseStrategy``, selected through its
+``DefenseStrategy`` attribute. The strategy is asked whether a node is
+mistrusted; the routing protocol decides what to do about the answer. The
+default, ``OlsrDefenseNull``, answers "nobody", leaving RFC 3626 behaviour
+intact.
+
+Two implementations exist, on separate git branches because they make
+incompatible changes to the OLSR message format:
+
+* ``OlsrTrustDefense`` (branch ``trust-defense``) -- Adnane, Bidan & de Sousa,
+  *Trust-based security for the OLSR routing protocol*, Computer Communications
+  36 (2013). Adds a ``PROOF_MESSAGE`` OLSR message type.
+* ``OlsrDefenseFpnt`` (branch ``fpnt-defense``) -- Tan, Li & Dong, *Trust based
+  routing mechanism for securing OLSR-based MANET*, Ad Hoc Networks 30 (2015).
+  Piggybacks evaluation vectors onto TC messages and replaces route computation
+  with a trust-weighted Dijkstra.
+
+Both expose their tunables as ns-3 attributes whose defaults reproduce the
+respective paper, with one documented exception: ``OlsrTrustDefense`` defaults
+``EnableConsistencyRules`` and ``EnableAlertDistribution`` to false so that the
+forward monitor can be measured in isolation. A faithful run must enable them.
+
+Further documentation
++++++++++++++++++++++
+
+See the repository's ``docs/`` directory, in particular ``docs/ARCHITECTURE.md``
+for how the pieces fit together and ``docs/RUNNING.md`` for how to reproduce the
+experiments.

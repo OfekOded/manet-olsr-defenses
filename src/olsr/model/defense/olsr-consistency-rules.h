@@ -8,12 +8,21 @@
  *   Formula (6):  x HELLOy y; x TCy y; TCy (subset of) NSy fails  ==> ¬trusts(y)   [IMPLEMENTED]
  *   Formula (7):  x TCy; x in TCy; y not in MPRSx                 ==> ¬trusts(y)   [IMPLEMENTED]
  *   Formula (9b): y in MPRSx; x TCy y; x not in TCy              ==> ¬trusts(y)   [IMPLEMENTED]
- *   Formula (9a): y in MPRSx; y generates no TC (awaiting)        ==> ¬trusts(y)   [STUB]
- *   Formula (8):  two different TCy (same orig) from z,w          ==> ¬trusts{z,w} [STUB]
- *   Formula (12): NSA (subset of) NSB w/ common MPR selector z    ==> ¬trusts{A,B,z}[STUB]
+ *   Formula (9a): y in MPRSx; y generates no TC (awaiting)        ==> ¬trusts(y)   [IMPLEMENTED]
+ *   Formula (8):  two different TCy (same orig) from z,w          ==> ¬trusts{z,w} [IMPLEMENTED]
+ *   Formula (12): NSA (subset of) NSB w/ common MPR selector z    ==> ¬trusts{A,B,z}[IMPLEMENTED]
  *
- * Default OFF (config.enableConsistencyRules) so the black-hole forward monitor
- * can be measured in isolation first.
+ * All six are implemented; see Evaluate() in the .cc, which handles (8) at the
+ * 'two DIFFERENT copies of the SAME TC' block, (9a) at 'a node we selected as
+ * MPR must GENERATE TC messages', and (12) at 'two neighbours with nested
+ * neighbourhoods'. Each of the three has its own attribute on OlsrTrustDefense
+ * -- EnableFormula8, EnableFormula9a, EnableFormula12 -- all defaulting to
+ * true, so they are live in every run that enables consistency rules at all.
+ *
+ * The whole group is default OFF (config.enableConsistencyRules) so the
+ * black-hole forward monitor can be measured in isolation first. Note that
+ * this makes the CLI default a partial defense: see docs/RUNNING.md, "The
+ * TRUST default-flags trap".
  *
  * SPDX-License-Identifier: GPL-2.0-only
  */

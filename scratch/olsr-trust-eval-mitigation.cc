@@ -1,8 +1,36 @@
 /* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
 /*
- * FPNT-OLSR Evaluation Harness  (post-audit Phase 2 rewrite)
- * ==========================================================
+ * TRUST-OLSR Evaluation Harness
+ * =============================
  *
+ * Evaluates the TRUST-OLSR defense of Adnane, Bidan & de Sousa (Computer
+ * Communications 36, 2013) against a link-spoofing blackhole attacker, and
+ * emits the LISTENER-17 machine-learning dataset.
+ *
+ * HOW TO RUN
+ *   Do not invoke this directly unless you know why. Use:
+ *
+ *       ./tools/olsr-research.sh use trust     # switch branch and build
+ *       ./tools/olsr-research.sh smoke         # 5 runs, prove it works
+ *       ./tools/olsr-research.sh run -n 2000   # a dataset batch
+ *
+ *   The wrapper applies the defense flags this harness needs. Its own CLI
+ *   defaults are --enableConsistencyRules=0 --enableAlertDistribution=0, which
+ *   leave two of the paper's three detection mechanisms switched off and drop
+ *   detection to roughly 0.1%. See docs/RUNNING.md.
+ *
+ *   Two special modes, both used by the tooling:
+ *       --self-test      schema self-check; must print ALL PASS
+ *       --emit-header    print the CSV headers and exit
+ *
+ *   Full flag reference: docs/RUNNING.md.  Output schema: docs/SCHEMA.md.
+ *
+ * This file was ported from the FPNT harness, which is why the two are
+ * structurally identical; the shared feature collector
+ * scratch/olsr_window_features.h is byte-identical on both branches ON
+ * PURPOSE, so the two defenses' datasets stay comparable.
+ *
+ * ---------------------------------------------------------------------------
  * CHANGELOG SUMMARY (see Phase 2 plan for details):
  *   LEAK-001/002/003: defense internal state, attacker-on-path, defense
  *                     config moved out of features into oracle/labels/runs.
@@ -267,6 +295,8 @@ NS_LOG_COMPONENT_DEFINE ("OlsrTrustEvalMitigation");
 //
 // Every ORACLE counter stays network-wide: it is ground truth by definition.
 // HEADER_VERSION 4 -> 7; HARNESS_VERSION 2.4.0 -> 3.0.0.
+// (Later raised again: the shipping values are HEADER_VERSION 8 and
+//  HARNESS_VERSION 3.0.0 -- see the #defines below, which are authoritative.)
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------

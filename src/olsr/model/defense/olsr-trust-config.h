@@ -52,7 +52,8 @@ struct OlsrTrustDefenseConfig
                                          //!< default false == faithful Formula 10 (only DATAx originated by x).
     bool strictMacAttribution = false;   //!< If true, only clear a DATA record when the overheard transmitter's
                                          //!< MAC resolves to the expected MPR; default lenient (clear on packet
-                                         //!< identity, which is sound for drop detection -- see README).
+                                         //!< identity, which is sound for drop detection -- see
+                                         //!< docs/ARCHITECTURE.md).
     uint32_t minForwardFailures = 3;     //!< Consecutive observed forward-failures before mistrust fires.
                                          //!< A single awaiting-period miss is indistinguishable from a
                                          //!< transient wireless loss (broadcast TC re-floods are not MAC-

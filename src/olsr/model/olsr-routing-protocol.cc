@@ -538,7 +538,11 @@ RoutingProtocol::DoInitialize()
         if (node)
         {
             std::string tracePath = "/NodeList/" + std::to_string(node->GetId()) + "/DeviceList/*/$ns3::WifiNetDevice/Mac/DroppedMpdu";
-            ns3::Config::Connect(tracePath, ns3::MakeCallback(&RoutingProtocol::MacTxDrop, this));
+            // ConnectFailSafe, not Connect: a node with no WifiNetDevice
+            // matches nothing, and Config::Connect treats that as fatal. OLSR
+            // runs over point-to-point and CSMA links too -- this is what
+            // aborts the stock routing-olsr-regression suite.
+            ns3::Config::ConnectFailSafe(tracePath, ns3::MakeCallback(&RoutingProtocol::MacTxDrop, this));
         }
     }
 }

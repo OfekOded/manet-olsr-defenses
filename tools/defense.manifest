@@ -31,14 +31,35 @@
 #                             being comparable.
 # =============================================================================
 
-DEFENSE_ID=none
-DEFENSE_NAME="no defense (shared base branch)"
-DEFENSE_BRANCH=master
-PAPER=""
-SCRATCH_TARGET=""
-DEFENSE_FLAGS=""
+DEFENSE_ID=trust
+DEFENSE_NAME="TRUST-OLSR"
+DEFENSE_BRANCH=trust-defense
+PAPER="Adnane, Bidan & de Sousa -- Trust-based security for the OLSR routing protocol, Computer Communications 36 (2013)"
+SCRATCH_TARGET=olsr-trust-eval-mitigation
 
-BATCH_SEED_STATIC=1
-BATCH_SEED_MOBILE=2000001
-BATCH_SEED_STATIC_MIXED=10000001
-BATCH_SEED_MOBILE_MIXED=12000001
+# WITHOUT THESE TWO FLAGS THE DEFENSE IS MOSTLY SWITCHED OFF.
+#
+# The harness CLI defaults are enableConsistencyRules=0 and
+# enableAlertDistribution=0, so only Formula 10 (the forward monitor) is live.
+# Measured detection with the defaults was 0.12% static / 0.48% mobile, which
+# reads like the defense does not work. With these flags:
+#
+#   --enableConsistencyRules=1   Formulas 6, 7, 8, 9a, 9b, 11/12 and the
+#                                extended network-wide rule of section 5.1
+#   --enableAlertDistribution=1  section 7 trust-alert re-broadcast
+#
+# Provable identity (section 6) stays off deliberately: the harness hard-sets
+# EnableProvableIdentity=false, which matches the measured recommendation --
+# at this scale it costs more than it gives.
+#
+# See docs/RUNNING.md, "The TRUST default-flags trap".
+DEFENSE_FLAGS="--enableConsistencyRules=1 --enableAlertDistribution=1"
+
+# As published in docs/DATASETS.md (the trust_static_v2 / trust_mobile_v2
+# batches). The v2 batches deliberately reuse the v1 seed ranges so that the
+# defense-off windows come out bit-identical and the two are comparable
+# window-for-window.
+BATCH_SEED_STATIC=4000001
+BATCH_SEED_MOBILE=6000001
+BATCH_SEED_STATIC_MIXED=14000001
+BATCH_SEED_MOBILE_MIXED=16000001
