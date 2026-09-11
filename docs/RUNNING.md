@@ -93,6 +93,24 @@ batch [options]            the canonical batches for this branch
 help
 ```
 
+### How long a switch takes
+
+Measured on the development machine (19 cores), from an already-built tree:
+
+| Switch | Elapsed |
+|---|---|
+| `use fpnt` (from `trust-defense`) | ~1 min 40 s |
+| `use trust` (from `fpnt-defense`) | ~15 min |
+
+The asymmetry is real and reproducible. TRUST adds a whole module directory
+(`src/olsr/model/defense/`, eight translation units) on top of
+`olsr-trust-defense.cc`, where FPNT adds one file; switching *to* TRUST
+therefore compiles considerably more, and everything that includes the OLSR
+headers relinks. Budget for it rather than assuming the command hung.
+
+A `build` with no branch change, after touching one file, is well under a
+minute.
+
 ### `run` options
 
 | Option | Default | Meaning |
@@ -310,17 +328,13 @@ was found: `routing-olsr-regression` crashed outright on `trust-defense`,
 and because the project only ever configured with `--enable-examples`, nothing
 ever ran it.
 
-Once enabled, tests **stay** enabled: `build` and `use` detect them in the
-existing configuration and keep them. This matters more than it sounds. Any
-change to the set of configure flags makes ns-3 rebuild from scratch — measured
-at about 35 minutes on the development machine, against roughly 90 seconds for
-an ordinary switch between the two defense branches. A `use` that quietly
-dropped `--enable-tests` would cost you both the rebuild and the test build.
-
-To go back to the faster examples-only configuration, say so explicitly:
+Once enabled, tests stay enabled. ns-3 keeps its configure options in the CMake
+cache, so the `./ns3 configure --enable-examples` that `build` and `use` run
+does **not** turn them off again — `NS3_TESTS:BOOL=ON` survives untouched.
+Turning them off is an explicit act:
 
 ```bash
-./ns3 configure --enable-examples
+./ns3 configure --disable-tests
 ```
 
 ---
