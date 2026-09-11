@@ -87,6 +87,22 @@ plain `smoke` run on `trust-defense`, with no flags typed by hand, produces
 `defense_params.txt` — which is the harness reporting its own effective
 configuration, not the wrapper reporting what it passed.
 
+## Remotes
+
+```
+origin     https://github.com/OfekOded/manet-olsr-defenses.git   this project
+upstream   https://gitlab.com/nsnam/ns-3-dev.git                 ns-3, for pulling releases
+hananel    https://github.com/hananelk26/manet-olsr-project.git  the partner's original repo
+```
+
+`hananel` is kept configured so the provenance of DCFM and Watchdog stays
+inspectable — `git log hananel/master`, `git show hananel/master:<path>`. See
+[PARTNER-IMPORT.md](PARTNER-IMPORT.md).
+
+Only this project's five branches and nine `handoff-*` / `restore-*` tags were
+pushed to `origin`. The ~100 upstream `ns-3.*` tags stay on `upstream` where
+they belong, so `git tag` in a clone lists only tags that mean something here.
+
 ## Tags
 
 | Tag | Meaning |

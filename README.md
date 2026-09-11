@@ -19,6 +19,20 @@ so their results are directly comparable.
 
 ---
 
+## Getting the code
+
+```bash
+git clone https://github.com/OfekOded/manet-olsr-defenses.git
+```
+
+```bash
+cd manet-olsr-defenses
+```
+
+You land on `master`, which holds the shared tooling and this documentation. The
+four defenses live on their own branches — the `use` command below switches and
+builds in one step, so you never need to check one out by hand.
+
 ## Start here
 
 ```bash
