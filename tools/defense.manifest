@@ -31,14 +31,33 @@
 #                             being comparable.
 # =============================================================================
 
-DEFENSE_ID=none
-DEFENSE_NAME="no defense (shared base branch)"
-DEFENSE_BRANCH=master
-PAPER=""
-SCRATCH_TARGET=""
+DEFENSE_ID=dcfm
+DEFENSE_NAME="DCFM-OLSR"
+DEFENSE_BRANCH=dcfm-defense
+PAPER="Schweitzer et al. -- Achieving MANET protection without the use of superfluous fictitious nodes, Computer Communications (2024)"
+SCRATCH_TARGET=olsr-dcfm-eval-mitigation
+
+# Deliberately empty, and worth stating rather than leaving implicit.
+#
+# OlsrDefenseGcop's "Enabled" attribute defaults to FALSE, which looks like the
+# TRUST default-flags trap but is NOT: here the harness owns that toggle. It
+# creates every defense object with Enabled=false and flips it per measurement
+# window through SetDefenseState() -- see the DEF-003 changelog entry and the
+# SetAttribute("Enabled", ...) call in olsr-dcfm-eval-mitigation.cc. That is
+# precisely what implements the 2x2 defense-on/off design, so forcing it on
+# from the command line would BREAK the experiment rather than fix it.
+#
+# Do not take this on trust: defense_params.txt in every output directory
+# records the parameters that were actually in effect for that run.
+#
+# NAMING: the class and its files say GCOP (src/olsr/model/olsr-defense-gcop.*,
+# class OlsrDefenseGcop, TypeId ns3::olsr::OlsrDefenseGcop) while everything
+# user-facing says DCFM. Same defense -- GCOP is the fictitious-node placement
+# algorithm at its core. See docs/ARCHITECTURE.md.
 DEFENSE_FLAGS=""
 
-BATCH_SEED_STATIC=1
-BATCH_SEED_MOBILE=2000001
-BATCH_SEED_STATIC_MIXED=10000001
-BATCH_SEED_MOBILE_MIXED=12000001
+# Disjoint from trust (4M/6M), fpnt (1/2M) and watchdog (24M/26M).
+BATCH_SEED_STATIC=20000001
+BATCH_SEED_MOBILE=22000001
+BATCH_SEED_STATIC_MIXED=30000001
+BATCH_SEED_MOBILE_MIXED=32000001
