@@ -266,8 +266,20 @@ cmd_build() {
     info "jobs   : $jobs"
     rule
 
+    # Preserve --enable-tests if this tree already has it. Changing the set of
+    # configure flags makes ns-3 rebuild EVERYTHING (~30 min here), so silently
+    # dropping a flag the user had set is an expensive surprise on top of
+    # losing their test build. Examples stay on unconditionally: the harness
+    # needs them, and that is the configuration every published dataset used.
+    local cfg_args=( --enable-examples )
+    if grep -qE "ENABLE_TESTS:BOOL=ON|'--enable-tests'" \
+            "$REPO_ROOT/cmake-cache/CMakeCache.txt" "$REPO_ROOT/.lock-ns3_linux_build" 2>/dev/null; then
+        cfg_args+=( --enable-tests )
+        info "tests are enabled in this tree; keeping them enabled"
+    fi
+
     say "configuring (required after every branch switch)"
-    ( cd "$REPO_ROOT" && ./ns3 configure --enable-examples ) \
+    ( cd "$REPO_ROOT" && ./ns3 configure "${cfg_args[@]}" ) \
         || die "./ns3 configure failed"
 
     say "building scratch_$SCRATCH_TARGET"
