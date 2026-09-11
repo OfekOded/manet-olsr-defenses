@@ -57,6 +57,13 @@ decides what to do about it.
 Most of the interface is **non-pure virtual with a safe default**, so a defense
 that does not participate in some mechanism needs no code for it at all.
 
+Each branch carries its own copy of `olsr-defense-strategy.{h,cc}`. They are not
+identical: TRUST and FPNT each added hooks their own mechanism needs. The two
+imported defenses call only the original common set, which is why they compiled
+here unmodified. Keeping the interface per-branch was a deliberate choice — an
+early attempt at one shared interface for every defense did not survive contact
+with what the papers actually require.
+
 ## TRUST-OLSR (`trust-defense`)
 
 Adnane, Bidan & de Sousa, *Computer Communications* 36 (2013).
@@ -121,7 +128,72 @@ to the paper's behaviour. The file states the rule it follows:
 `FPNT-OLSR(R)` — the redundant-MPR-coverage variant of §5.3 — is available via
 `--redundantMpr` and is off by default.
 
-## Why two branches
+## DCFM-OLSR (`dcfm-defense`)
+
+Schweitzer et al., *Achieving MANET protection without the use of superfluous
+fictitious nodes*, Computer Communications (2024). Implemented by Hananel
+Kahana; see [PARTNER-IMPORT.md](PARTNER-IMPORT.md).
+
+```
+src/olsr/model/olsr-defense-gcop.{h,cc}    class OlsrDefenseGcop, ~1040 lines
+```
+
+> **Naming.** The class and files say **GCOP**; the branch, manifest, harness and
+> every `defense_variant=DCFM-OLSR` record say **DCFM**. Same defense. GCOP is
+> the fictitious-node placement algorithm at its core. Nothing was renamed
+> because the TypeId string `ns3::olsr::OlsrDefenseGcop` is what the harness
+> looks up.
+
+Three mechanisms:
+
+- **C-Rules** (paper §3.5.1) — three contradiction tests over received HELLO/TC,
+  plus a Rule-1 "bait" extension.
+- **GCOP** (Algorithm 1, §5.1) — a depth-2 BFS that decides *whether* this node
+  needs to advertise a fictitious neighbour at all. The point of the paper is
+  avoiding superfluous fictitious nodes, so most nodes decide no.
+- **GCOHP** (Algorithm 2, §5.2) — hexagon-topology detection, used as a fallback
+  when GCOP cannot decide.
+
+Only two attributes: `Enabled` (default false — the harness owns this toggle,
+see below) and `UseFictitiousNodes` (default true; setting it false degrades the
+defense to the paper's C-Rules alone, a built-in ablation).
+
+Its routing-protocol variant adds the **IMP enforcement path**: a secondary
+routing table `m_tableAvoidingSuspects`, computed by excluding every currently
+blacklisted node, consulted *only at forward time*. The main table is never
+poisoned in response to a suspicion — which is also why this variant deliberately
+does **not** filter a suspected node's control messages, with the source noting
+that doing so was the strongest ML leakage signal in earlier revisions.
+
+## Watchdog-OLSR (`watchdog-defense`)
+
+Baiad, Otrok, Muhaidat & Bentahar, *Cooperative Cross Layer Detection for
+Blackhole Attack in VANET-OLSR*, IEEE IWCMC (2014). Implemented by Hananel
+Kahana.
+
+```
+src/olsr/model/olsr-watchdog-defense.{h,cc}   class OlsrWatchdogDefense, ~1590 lines
+```
+
+**This is not the classic Marti et al. watchdog**, and the difference matters
+when reading results. It is *cross-layer*: forwarding observations are
+corroborated with RTS/CTS evidence and MAC-layer failures, per node, with no
+inter-node cooperation messages. Sixteen attributes; four of them the source
+itself marks `"INERT."` — heuristics removed from the decision path but kept so
+older scripts still parse.
+
+Its routing-protocol variant is the odd one out: it contains **no
+promiscuous-monitoring code at all**. That looks like something went missing
+until you check where the evidence comes from. `OlsrWatchdogDefense` schedules
+its own periodic check (`m_periodicEvent`) and draws on the forwarding and
+MAC-failure hooks. So the empty `HandleDefenseTimer()` in its routing protocol
+is correct here.
+
+DCFM is the mirror image: `OlsrDefenseGcop` does *not* self-schedule, and its
+routing-protocol variant supplies the full periodic timer body. Each pairing is
+internally consistent; neither is a bug.
+
+## Why four branches
 
 The two defenses are not merely different classes. They make **incompatible
 edits to the same core OLSR files**, so they cannot be built into one binary as
@@ -159,28 +231,55 @@ TRUST added `GetPartialMistrusted()`, `OnHelloGenerated()` and `OnRecvProof()`.
 Every one of those is non-pure with a safe default, so unioning the two
 interfaces would compile and neither defense would need changing.
 
-So unification is feasible — items 1 and 3 are mechanical, item 2 needs a design
-decision — but it was not attempted, because it would put the comparability of
-the existing datasets at risk for no scientific gain. The branches are the
-record of what was actually run. What the tooling does instead is make switching
-between them a single command that cannot be misconfigured.
+### DCFM and Watchdog conflict too
 
-`master` is the shared base: stock ns-3.47 plus the attacker model, plus `tools/`
-and `docs/`, and no defense. `tools/` and `docs/` are byte-identical on all three
-branches; only `tools/defense.manifest` differs.
+The same pattern holds for the two imported defenses, which are **not** a
+subset/superset pair despite sharing an author. `diff` between their
+routing-protocol variants is `+66 / −418` across six regions that cannot be
+reconciled by simply taking the union:
+
+1. **Control-message filtering in `RecvOlsr`.** Watchdog drops a suspected
+   node's HELLO/TC; DCFM deliberately removed that, citing ML leakage.
+2. **MPR candidate exclusion.** Watchdog skips suspected 1-hop and 2-hop
+   neighbours; DCFM explicitly does not (paper §3.4).
+3. **MPR selection tie-break.** DCFM only — adds one clean MPR when all
+   candidates are suspect, rather than removing suspects.
+4. **Routing-table computation.** Watchdog filters inline; DCFM split the
+   function to build the suspect-avoiding table.
+5. **The `RouteInput` response to a suspected next hop.** Watchdog: nothing.
+   DCFM: reroute, never drop. TRUST: drop. FPNT: drop unless trust routing is
+   active.
+6. **Fictitious-node injection.** DCFM has it in HELLO and TC; Watchdog has
+   neither.
+
+So all four are genuinely independent edits of the same base, and one branch per
+defense is the correct shape rather than a compromise. Unification of TRUST and
+FPNT is feasible on paper — items 1 and 3 above are mechanical, item 2 needs a
+design decision — but it was not attempted, because it would put the
+comparability of the existing datasets at risk for no scientific gain. The
+branches are the record of what was actually run. What the tooling does instead
+is make switching between them a single command that cannot be misconfigured.
+
+`master` holds the shared tooling and documentation and no defense. `tools/` and
+`docs/` are byte-identical on all four defense branches; only
+`tools/defense.manifest` differs. Note that `master` is still ns-3 `3-dev` while
+all four defense branches are `3.47` — see
+[HANDOFF.md](HANDOFF.md#known-issues).
 
 ## The harness
 
-`scratch/olsr-trust-eval-mitigation.cc` and
-`scratch/olsr-fpnt-eval-mitigation.cc` are the evaluation programs — one per
-branch, about 2700 lines each, and largely a copy of one another. They build the
+`scratch/olsr-{trust,fpnt,dcfm,watchdog}-eval-mitigation.cc` are the evaluation
+programs — one per branch, 2700-2850 lines each, and largely copies of one
+another (all four are `HARNESS_VERSION 3.0.0`, `HEADER_VERSION 8`). They build the
 topology, install the attacker and the defense, drive the four measurement
 windows, and emit the CSVs.
 
 They share `scratch/olsr_window_features.h`, the feature collector, which is
-**byte-identical on both branches**. That is deliberate and load-bearing: it is
-what lets the two defenses' datasets be compared at all. If you change it,
-change it on both branches in the same commit.
+**byte-identical on all four branches** (`59662ed01`). That is deliberate and
+load-bearing: it is what lets the four defenses' datasets be compared at all.
+Verified end to end — all four compiled binaries emit the same 22-column header
+from `--emit-header`. If you change the collector, change it on all four
+branches in the same commit and regenerate everything.
 
 Both harnesses accept `--self-test` (a cycle-counter self-check that must print
 `ALL PASS`; the tooling runs it after every build) and `--emit-header` (prints
