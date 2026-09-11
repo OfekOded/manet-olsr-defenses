@@ -70,9 +70,9 @@ Optional:
   -o, --output-dir DIR        Output directory (default: ./simulations/features).
       --ns3-dir DIR           Path to ns-3-dev root (default: the git root).
       --defense NAME          Convenience selector for the defense harness:
-                              one of {trust, fpnt}. Maps to the matching
-                              scratch program. Mutually exclusive with
-                              --scratch (unless they agree). NOTE: each
+                              one of {trust, fpnt, dcfm, watchdog}. Maps to
+                              the matching scratch program. Mutually exclusive
+                              with --scratch (unless they agree). NOTE: each
                               defense only exists on its own branch; see
                               './tools/olsr-research.sh use'.
       --scratch NAME          Scratch program name (default: from
@@ -218,20 +218,22 @@ if ! [[ "$JOBS" =~ ^[0-9]+$ && "$JOBS" -gt 0 ]]; then
   echo "ERROR: --jobs must be a positive integer." >&2; exit 1
 fi
 
-# --- resolve --defense {trust|fpnt} -> scratch program ----------------------
+# --- resolve --defense {trust|fpnt|dcfm|watchdog} -> scratch program ---------
 # --defense is a convenience selector mapping to the per-defense scratch binary.
 # --scratch still works directly; passing both is an error unless they agree.
 # Resolved here (before any orchestrator self-re-invocation) so child batches
 # inherit the concrete --scratch.
 #
-# Earlier revisions also advertised 'watchdog' and 'dcfm'. No such harness was
-# ever written on any branch, so those selectors could only ever fail; they
-# were removed rather than left as traps.
+# All four defenses have a harness, each on its own branch. Naming a defense
+# that is not on the current branch is caught by the existence check below,
+# which tells you which branch to switch to.
 if [[ -n "$DEFENSE" ]]; then
   case "$DEFENSE" in
     trust)    mapped="olsr-trust-eval-mitigation" ;;
     fpnt)     mapped="olsr-fpnt-eval-mitigation" ;;
-    *) echo "ERROR: --defense must be one of: trust, fpnt." >&2; exit 1 ;;
+    dcfm)     mapped="olsr-dcfm-eval-mitigation" ;;
+    watchdog) mapped="olsr-watchdog-eval-mitigation" ;;
+    *) echo "ERROR: --defense must be one of: trust, fpnt, dcfm, watchdog." >&2; exit 1 ;;
   esac
   if [[ $SCRATCH_EXPLICIT -eq 1 && "$SCRATCH" != "$mapped" ]]; then
     echo "ERROR: --defense '$DEFENSE' implies --scratch '$mapped', but" >&2
@@ -247,6 +249,8 @@ fi
 case "$SCRATCH" in
   *fpnt*)     DEFENSE_LABEL="FPNT-OLSR" ;;
   *trust*)    DEFENSE_LABEL="Trust-OLSR" ;;
+  *dcfm*)     DEFENSE_LABEL="DCFM-OLSR" ;;
+  *watchdog*) DEFENSE_LABEL="Watchdog-OLSR" ;;
   *)          DEFENSE_LABEL="$SCRATCH" ;;
 esac
 
@@ -256,7 +260,7 @@ if [[ ! -f "$NS3_DIR/scratch/$SCRATCH.cc" ]]; then
   echo "ERROR: $NS3_DIR/scratch/$SCRATCH.cc does not exist on this branch" >&2
   echo "       (branch: $(git -C "$NS3_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown))." >&2
   echo "       Each defense lives on its own branch. Switch with:" >&2
-  echo "         ./tools/olsr-research.sh use trust    # or: use fpnt" >&2
+  echo "         ./tools/olsr-research.sh use <trust|fpnt|dcfm|watchdog>" >&2
   exit 1
 fi
 
