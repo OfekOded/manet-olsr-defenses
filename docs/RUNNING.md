@@ -310,10 +310,18 @@ was found: `routing-olsr-regression` crashed outright on `trust-defense`,
 and because the project only ever configured with `--enable-examples`, nothing
 ever ran it.
 
-Note that the next `olsr-research.sh build` or `use` reconfigures back to
-examples-only. That is intentional — it keeps dataset generation on the
-configuration the published batches used — so re-enable tests when you want
-them.
+Once enabled, tests **stay** enabled: `build` and `use` detect them in the
+existing configuration and keep them. This matters more than it sounds. Any
+change to the set of configure flags makes ns-3 rebuild from scratch — measured
+at about 35 minutes on the development machine, against roughly 90 seconds for
+an ordinary switch between the two defense branches. A `use` that quietly
+dropped `--enable-tests` would cost you both the rebuild and the test build.
+
+To go back to the faster examples-only configuration, say so explicitly:
+
+```bash
+./ns3 configure --enable-examples
+```
 
 ---
 
