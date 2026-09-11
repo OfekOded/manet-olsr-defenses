@@ -19,15 +19,15 @@ comparable. See [SCHEMA.md](SCHEMA.md).
 | `fpnt_mobile` | FPNT | `fpnt-defense` | yes | canonical | 2 000 001 | 2010 | 8040 |
 | `fpnt_static_mixed` | FPNT | `fpnt-defense` | no | randomized | 10 000 001 | 2010 | 8040 |
 | `fpnt_mobile_mixed` | FPNT | `fpnt-defense` | yes | randomized | 12 000 001 | 2009 | 8036 |
-| `trust_static` ⚠ | TRUST | `trust-defense` | no | canonical | 4 000 001 | 2010 | 8040 |
-| `trust_mobile` ⚠ | TRUST | `trust-defense` | yes | canonical | 6 000 001 | 2009 | 8036 |
+| `trust_static` ⚠ *(deleted)* | TRUST | `trust-defense` | no | canonical | 4 000 001 | 2010 | 8040 |
+| `trust_mobile` ⚠ *(deleted)* | TRUST | `trust-defense` | yes | canonical | 6 000 001 | 2009 | 8036 |
 | **`trust_static_v2`** | TRUST | `trust-defense` | no | canonical | 4 000 001 | 2012 | 8048 |
 | **`trust_mobile_v2`** | TRUST | `trust-defense` | yes | canonical | 6 000 001 | 2009 | 8036 |
 
 All batches: `-n 2000`, `--max-attempts 8000`, `--direct`, 50 nodes,
 750×1000 m grid, one attacker (node 2), `spoofCount=5`, 190 m radio range.
 
-### ⚠ `trust_static` and `trust_mobile` are superseded
+### ⚠ `trust_static` and `trust_mobile` were superseded, and have been deleted
 
 They were generated with `enable_consistency_rules=0` and
 `enable_alert_distribution=0` — the harness CLI defaults — so only Formula 10
@@ -38,8 +38,18 @@ was live and detection came out at 0.12% / 0.48%. See
 `--enableConsistencyRules=1 --enableAlertDistribution=1` and **the same seed
 ranges on purpose**, so the defense-off windows come out bit-identical and the
 two datasets are comparable window-for-window. Use the `_v2` pair for anything
-about TRUST's performance; the originals are only useful as an ablation showing
-what the forward monitor achieves alone.
+about TRUST's performance.
+
+**The two v1 directories were deleted on 2026-09-11**, precisely because they
+sat next to the `_v2` pair looking equally authoritative: picking the wrong one
+yields 0.12% detection and the conclusion that TRUST does not work. Their CSVs
+and provenance sidecars — not their 41 MB of per-attempt logs — were kept in
+`olsr-batch/out/SUPERSEDED-trust-v1-csv-only.tar.gz` (1.8 MB), since they remain
+the only record of the forward-monitor-alone ablation.
+
+Nothing is lost even if that archive goes: the configuration is fully recorded
+here, so the pair is reproducible with the command at the end of
+[Regenerating](#regenerating) below.
 
 This trap is now closed: `tools/defense.manifest` on `trust-defense` carries
 those flags and `tools/olsr-research.sh` applies them automatically.
@@ -115,11 +125,16 @@ Everything is resumable — re-running the same command after an interruption
 continues from the seed ledger rather than starting over.
 
 Note that `batch` reproduces the **v2** TRUST configuration, because the
-manifest now carries the correct flags. To reproduce the superseded v1 batches
-for comparison, bypass the manifest:
+manifest now carries the correct flags. To reproduce the deleted v1 batches —
+the forward-monitor-alone ablation — bypass the manifest and call the runner
+directly, which applies no defense flags of its own:
 
 ```bash
 ./tools/run_simulations.sh -n 2000 -j 12 --direct --defense trust -o datasets/trust_static_v1 --start-seed 4000001 --max-attempts 8000
+```
+
+```bash
+./tools/run_simulations.sh -n 2000 -j 12 --direct --defense trust -o datasets/trust_mobile_v1 --start-seed 6000001 --max-attempts 8000 --extra "--bMobility=true"
 ```
 
 ## Superseded output directories
