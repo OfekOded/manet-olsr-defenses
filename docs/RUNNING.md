@@ -345,6 +345,7 @@ Turning them off is an explicit act:
 |---|---|
 | `no such target scratch_olsr-...` | cmake was not reconfigured after a branch switch. Run `./tools/olsr-research.sh build`. |
 | `--direct: ... is OLDER than ...` | Stale binary. Rebuild. This guard is doing its job — do not work around it. |
+| `doctor` says `stale build: ... is newer than the binary`, right after a `git checkout` | Expected. Checking out a branch rewrites the source files and their timestamps, so the existing binary no longer matches. Run `./tools/olsr-research.sh build`. Using `use <defense>` instead of a bare `git checkout` does this for you. |
 | Exit code 3, header mismatch | The schema changed since the existing CSVs were written. Write to a new directory, or `--fresh --yes` to discard. |
 | `--fresh needs confirmation but stdin is not a terminal` | You are detached or piped. Add `--yes` if you really mean to delete the data. |
 | `scratch/X.cc does not exist on this branch` | Wrong branch for that defense. `./tools/olsr-research.sh use trust` (or `fpnt`). |
