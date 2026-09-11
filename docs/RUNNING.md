@@ -84,12 +84,13 @@ so 2000 accepted runs take roughly 4400 attempts.
 ## `tools/olsr-research.sh`
 
 ```
-doctor                     toolchain, branch, manifest, build, self-test
-use <trust|fpnt> [JOBS]    switch branch, reconfigure, build, self-test
-build [JOBS]               reconfigure and build the current branch
-smoke                      5 runs; prints the resulting CSV header
-run [options]              one dataset batch
-batch [options]            the canonical batches for this branch
+doctor                  toolchain, branch, manifest, build, self-test
+use <defense> [JOBS]    switch branch, reconfigure, build, self-test
+                        defense = trust | fpnt | dcfm | watchdog
+build [JOBS]            reconfigure and build the current branch
+smoke                   5 runs; prints the resulting CSV header
+run [options]           one dataset batch
+batch [options]         the canonical batches for this branch
 help
 ```
 
@@ -99,14 +100,16 @@ Measured on the development machine (19 cores), from an already-built tree:
 
 | Switch | Elapsed |
 |---|---|
-| `use fpnt` (from `trust-defense`) | ~1 min 40 s |
-| `use trust` (from `fpnt-defense`) | ~15 min |
+| `use trust` | ~1-15 min |
+| `use fpnt` | ~2 min |
+| `use dcfm` | ~2.5 min |
+| `use watchdog` | ~2.5 min |
 
-The asymmetry is real and reproducible. TRUST adds a whole module directory
-(`src/olsr/model/defense/`, eight translation units) on top of
-`olsr-trust-defense.cc`, where FPNT adds one file; switching *to* TRUST
-therefore compiles considerably more, and everything that includes the OLSR
-headers relinks. Budget for it rather than assuming the command hung.
+Switching to TRUST is the slow one when the build cache is cold: it adds a whole
+module directory (`src/olsr/model/defense/`, eight translation units) on top of
+`olsr-trust-defense.cc`, where the other three add one or two files. Once each
+branch has been built once the cache is warm and every switch settles around two
+minutes. Budget for the first one rather than assuming the command hung.
 
 A `build` with no branch change, after touching one file, is well under a
 minute.
@@ -150,7 +153,8 @@ The resumable parallel runner. Everything above ultimately calls this.
 -j, --jobs J             parallel workers (default 1)
 -o, --output-dir DIR     default ./simulations/features
     --ns3-dir DIR        default: the git root
-    --defense NAME       trust | fpnt  (default: from tools/defense.manifest)
+    --defense NAME       trust | fpnt | dcfm | watchdog
+                         (default: from tools/defense.manifest)
     --scratch NAME       scratch program directly; conflicts with --defense
     --start-seed S       default 1
     --max-attempts M     default: from --calibrate, else 5x target
@@ -282,6 +286,32 @@ TRUST only (`trust-defense`):
 | `--mistrustPermanent` | false | Permanent vs rehabilitatable mistrust |
 | `--mistrustDuration` | 60.0 s | Rehab window when not permanent |
 
+DCFM only (`dcfm-defense`) -- the defense itself exposes only two ns-3
+attributes, and neither is a harness command-line flag:
+
+| Attribute | Default | Meaning |
+|---|---|---|
+| `Enabled` | **false** | Owned by the harness, which flips it per measurement window. Do not force it on -- that breaks the 2x2 design. |
+| `UseFictitiousNodes` | true | Set false to degrade the defense to the paper's C-Rules alone (a built-in ablation). |
+
+Watchdog only (`watchdog-defense`) -- sixteen attributes, again set on the
+defense object rather than through harness flags. The load-bearing ones:
+
+| Attribute | Default | Meaning |
+|---|---|---|
+| `Enabled` | **false** | Owned by the harness, as above |
+| `ForwardTimeout` | 500 ms | How long to wait before calling a forward missing |
+| `PeriodicInterval` | 1 s | Self-scheduled reasoning tick |
+| `WarmupDuration` | 15 s | Grace period before any accusation |
+| `BlacklistThreshold` | 3 | Strikes before blacklisting |
+| `MacFailureThreshold` | 3 | Corroborating MAC failures |
+| `ProbationDuration` | 2 s | Re-check window |
+| `VerifyOnwardHop` | — | Whether to confirm the packet moved on |
+
+Four further attributes (`RtsToDataRatioThreshold`, `MinRtsForHeuristic`,
+`MinSelfReliability`, and one more) are documented `"INERT."` in the source --
+retained so older scripts keep parsing, but removed from the decision path.
+
 FPNT only (`fpnt-defense`):
 
 | Flag | Default | Meaning |
@@ -348,5 +378,5 @@ Turning them off is an explicit act:
 | `doctor` says `stale build: ... is newer than the binary`, right after a `git checkout` | Expected. Checking out a branch rewrites the source files and their timestamps, so the existing binary no longer matches. Run `./tools/olsr-research.sh build`. Using `use <defense>` instead of a bare `git checkout` does this for you. |
 | Exit code 3, header mismatch | The schema changed since the existing CSVs were written. Write to a new directory, or `--fresh --yes` to discard. |
 | `--fresh needs confirmation but stdin is not a terminal` | You are detached or piped. Add `--yes` if you really mean to delete the data. |
-| `scratch/X.cc does not exist on this branch` | Wrong branch for that defense. `./tools/olsr-research.sh use trust` (or `fpnt`). |
+| `scratch/X.cc does not exist on this branch` | Wrong branch for that defense. `./tools/olsr-research.sh use <trust\|fpnt\|dcfm\|watchdog>`. |
 | Working tree dirty, refuses to switch | Commit or stash. Switching with a dirty tree is how you silently mix two defenses' code. |
