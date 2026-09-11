@@ -1,0 +1,168 @@
+# Project status and handoff notes
+
+Written when the original authors finished, for whoever continues the work.
+The intent is that nothing here is a surprise later.
+
+## Where things stand
+
+Both defenses are implemented, instrumented and evaluated. Eight dataset
+batches are complete ([DATASETS.md](DATASETS.md)). The code builds and
+self-tests on both branches.
+
+| | TRUST-OLSR | FPNT-OLSR |
+|---|---|---|
+| Paper | Adnane et al., 2013 | Tan et al., 2015 |
+| Branch | `trust-defense` | `fpnt-defense` |
+| Implementation | complete, all formulas | complete, all 7 fuzzy rules |
+| Canonical datasets | `trust_static_v2`, `trust_mobile_v2` | `fpnt_static`, `fpnt_mobile` |
+| Randomized-window datasets | **missing** | `fpnt_*_mixed` |
+
+## Tags
+
+| Tag | Meaning |
+|---|---|
+| `trust-defense-verified-2026-08-18` | TRUST after merging ns-3.47 and the QA round |
+| `trust-defense-paper-complete-2026-08-20` | TRUST implementation complete against Adnane et al. |
+| `handoff-2026-09-11-trust` | the state handed over: TRUST + tooling + docs |
+| `handoff-2026-09-11-fpnt` | the state handed over: FPNT + tooling + docs |
+| `ns-3.47` | upstream release this fork is based on |
+| `v1.0-stable`, `v1.1-stable` | early project milestones, pre-dating both defenses |
+
+`master` is 4 commits ahead of `origin/master` (the project's own base) and
+several hundred behind it (upstream ns-3 has moved on to 3.48+). Rebasing onto a
+newer ns-3 is possible but would invalidate the datasets, which are tied to
+ns-3.47 behaviour.
+
+## Known issues
+
+Listed honestly, in rough order of how likely they are to cost you time.
+
+### 1. TRUST's defense timer ignores its own `CheckInterval`
+
+`olsr-routing-protocol.cc` on `trust-defense` schedules the defense timer with a
+hardcoded `Seconds(1.0)`:
+
+```cpp
+m_defenseTimer.Schedule(Seconds(1.0));
+```
+
+but `OlsrTrustDefense`'s `CheckInterval` attribute defaults to 0.25 s and is
+documented as the forward-failure expiry sweep granularity. FPNT does this
+correctly via `GetDefenseCheckInterval()`.
+
+**This was left unchanged on purpose.** Fixing it changes TRUST's runtime
+behaviour and would make the existing `trust_*_v2` datasets non-comparable with
+anything produced afterwards. If you fix it, regenerate the TRUST batches and
+say so in the manifest.
+
+### 2. `olsr-repositories.h` exists twice on `trust-defense`
+
+`src/olsr/model/olsr-repositories.h` and
+`src/olsr/model/defense/olsr-repositories.h` are byte-identical, and
+`src/olsr/CMakeLists.txt` installs the `defense/` copy as `ns3/olsr-repositories.h`.
+So the file the model code includes by relative path is **not** the one the test
+suite gets via `ns3/`. Two copies to keep in sync, silently. Not present on
+`fpnt-defense`.
+
+De-duplicating is safe but touches the public header set, so it was left alone.
+
+### 3. Parity references are not in this repository
+
+[SCHEMA.md](SCHEMA.md) documents the feature collector as a deliberate
+re-implementation of `iolsr-tests-corrected.cc`, with feature 8 defined by
+`arm_spec.py`. **Neither file is in this repo.** Parity therefore cannot be
+re-verified from here alone. If you can obtain them, commit them under
+`docs/reference/` — they are the only external dependency of the schema.
+
+### 4. `blackhole-animation.xml` is committed
+
+135 KB of generated NetAnim output, at the repository root, on all three
+branches since the initial commit. Harmless but wrong: it is output, not source.
+Removing it from the tip is easy; removing it from history is a rewrite and was
+not done.
+
+### 5. No TRUST mixed-window batches
+
+All four canonical batches ran with `random_window_order = 0`, which perfectly
+confounds measurement-window slot position with scenario. The FPNT `_mixed`
+batches were added to quantify that effect; the TRUST equivalent was never run.
+See "next steps" below.
+
+### 6. `master` is not a clean pre-defense base
+
+It already carries `scratch/olsr-trust-eval-mitigation.cc` and the FPNT trust
+mechanism commit. It is the shared base of the two defense branches, not a
+neutral stock-ns-3 checkout. Its `scratch/olsr_window_features.h` also predates
+the LISTENER-17 schema, so do not use `master` to generate anything.
+
+## Suggested next steps
+
+Roughly in order of value per unit of effort.
+
+1. **Run the TRUST mixed-window batches** to close the asymmetry in issue 5.
+   Two commands, no code changes:
+   ```bash
+   ./tools/olsr-research.sh use trust
+   ```
+   ```bash
+   ./tools/olsr-research.sh batch -n 2000 -j 12 --mixed --detach
+   ```
+
+2. **Train and report the detection models.** The dataset is the point of the
+   project and is complete; nothing in this repository consumes it yet. There is
+   no analysis code here at all — that work lives outside the repo, and adding it
+   under `analysis/` would make the pipeline end-to-end reproducible.
+
+3. **Decide about `MonitorTcForwarding`** on FPNT. It is in the paper but
+   defaults to off here. Whether turning it on changes the results is unmeasured.
+
+4. **Consider the FPNT-OLSR(R) variant** (`--redundantMpr`). Implemented, never
+   evaluated.
+
+5. **Unify the two defenses onto one branch**, if side-by-side comparison within
+   a single run ever becomes important.
+   [ARCHITECTURE.md](ARCHITECTURE.md#why-two-branches) sets out exactly what
+   conflicts: the `olsr-header.h` message-format divergence is mechanical, the
+   strategy interfaces union cleanly, and the only real design decision is the
+   HELLO re-flooding rule. Note that this would break comparability with the
+   existing datasets unless the merged build reproduces both defenses bit-for-bit.
+
+## Things not to break
+
+- **`scratch/olsr_window_features.h` must stay byte-identical on both defense
+  branches.** It is what makes the two datasets comparable. Change it on both in
+  the same commit, bump `HEADER_VERSION`, and write a new `docs/DATASETS.md` row.
+- **Seed ranges in `tools/defense.manifest`** are what let a regenerated batch
+  reproduce the original run-for-run. Do not renumber them casually.
+- **The stale-binary guard in `--direct` mode.** It looks like an obstacle; it is
+  the only thing standing between you and a dataset silently generated by the
+  previous revision's code. Rebuild rather than work around it.
+- **`windows_oracle.csv` is not a feature source.** It contains ground truth an
+  attacker-detecting model cannot legitimately observe.
+
+## Provenance of the tooling
+
+`tools/run_simulations.sh` and `tools/olsr-research.sh` consolidate what used to
+be five untracked scripts in a home directory outside the repository
+(`run_simulations_direct.sh`, `drive_all.sh`, `drive_trust_v2.sh`,
+`drive_fpnt_mixed.sh`, `launch.sh`). The runner is the audited `--direct`
+version that actually produced every dataset in [DATASETS.md](DATASETS.md); the
+repo previously tracked an older copy without `--direct` that had never
+generated any of the shipped data.
+
+Changes made during consolidation, all in `tools/run_simulations.sh`:
+
+- the default harness now comes from `tools/defense.manifest` instead of being
+  hardcoded to FPNT — which was wrong on two of the three branches;
+- `--defense watchdog` and `--defense dcfm` were removed; no such harness was
+  ever written, so those selectors could only fail;
+- a clear error when the requested harness does not exist on the current branch;
+- `--fresh` no longer blocks on an interactive prompt when stdin is not a
+  terminal — it used to hang or silently abort under `nohup`. Use `--yes`;
+- output paths are quoted in the `./ns3 run` argument string, which previously
+  broke on any path containing a space;
+- `runner.config` now records the branch, the commit and whether `--direct` was
+  used, and every batch gets a `defense_flags.txt` provenance sidecar.
+
+None of this changes simulation behaviour; the numbers a run produces are
+unaffected.

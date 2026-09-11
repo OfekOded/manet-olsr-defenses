@@ -1,0 +1,44 @@
+# =============================================================================
+# defense.manifest -- which defense this branch carries, and how to run it.
+#
+# THIS IS THE ONLY FILE THAT DIFFERS BETWEEN BRANCHES.
+#
+# tools/olsr-research.sh and tools/run_simulations.sh are byte-identical on
+# every branch; they read this file to learn what to build and which flags a
+# faithful run needs. That is what makes "switch branch, run dataset" a single
+# command that cannot be configured wrongly by accident.
+#
+# It is sourced as a shell fragment, so: KEY=value, quote anything with spaces.
+#
+# FIELDS
+#   DEFENSE_ID                short name; also the --defense selector and the
+#                             prefix of generated dataset directory names.
+#                             'none' means this branch carries no harness.
+#   DEFENSE_NAME              human-readable name, shown in banners.
+#   DEFENSE_BRANCH            the branch this manifest belongs to. 'doctor'
+#                             compares it against HEAD, which catches a
+#                             manifest that arrived on the wrong branch
+#                             through a careless merge.
+#   PAPER                     the publication being reproduced.
+#   SCRATCH_TARGET            scratch program, without the .cc extension.
+#                             The cmake target is scratch_<SCRATCH_TARGET>.
+#   DEFENSE_FLAGS             harness arguments that EVERY faithful run needs.
+#                             Applied automatically by olsr-research.sh.
+#   BATCH_SEED_*              first --run seed of each canonical batch. The
+#                             ranges are disjoint so batches stay statistically
+#                             independent; keep them as published in
+#                             docs/DATASETS.md or the existing datasets stop
+#                             being comparable.
+# =============================================================================
+
+DEFENSE_ID=none
+DEFENSE_NAME="no defense (shared base branch)"
+DEFENSE_BRANCH=master
+PAPER=""
+SCRATCH_TARGET=""
+DEFENSE_FLAGS=""
+
+BATCH_SEED_STATIC=1
+BATCH_SEED_MOBILE=2000001
+BATCH_SEED_STATIC_MIXED=10000001
+BATCH_SEED_MOBILE_MIXED=12000001
