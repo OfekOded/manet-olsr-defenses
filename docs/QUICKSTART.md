@@ -2,7 +2,20 @@
 
 From a fresh clone to a labelled dataset. Everything here is copy-pasteable.
 
-## 0. Prerequisites
+## 0. Clone
+
+```bash
+git clone https://github.com/OfekOded/manet-olsr-defenses.git
+```
+
+```bash
+cd manet-olsr-defenses
+```
+
+The clone lands on `master` — shared tooling and documentation, no defense. Do
+not generate data from `master`; `use` (step 1) moves you to a defense branch.
+
+## 0b. Prerequisites
 
 The stock ns-3.47 build requirements (g++ or clang++, cmake, python3), plus
 `bash >= 4.3` and `flock`, which the batch runner needs. On Debian/Ubuntu:
