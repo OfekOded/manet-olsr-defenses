@@ -9,13 +9,18 @@ Both defenses are implemented, instrumented and evaluated. Eight dataset
 batches are complete ([DATASETS.md](DATASETS.md)). The code builds and
 self-tests on both branches.
 
-| | TRUST-OLSR | FPNT-OLSR |
-|---|---|---|
-| Paper | Adnane et al., 2013 | Tan et al., 2015 |
-| Branch | `trust-defense` | `fpnt-defense` |
-| Implementation | complete, all formulas | complete, all 7 fuzzy rules |
-| Canonical datasets | `trust_static_v2`, `trust_mobile_v2` | `fpnt_static`, `fpnt_mobile` |
-| Randomized-window datasets | **missing** | `fpnt_*_mixed` |
+| | TRUST-OLSR | FPNT-OLSR | DCFM-OLSR | Watchdog-OLSR |
+|---|---|---|---|---|
+| Paper | Adnane et al., 2013 | Tan et al., 2015 | Schweitzer et al., 2024 | Baiad et al., 2014 |
+| Author | Oded Ofek | Oded Ofek | Hananel Kahana | Hananel Kahana |
+| Branch | `trust-defense` | `fpnt-defense` | `dcfm-defense` | `watchdog-defense` |
+| Implementation | complete | complete | complete | complete |
+| Builds + self-test | ✅ | ✅ | ✅ | ✅ |
+| Canonical datasets | `trust_*_v2` | `fpnt_static`, `fpnt_mobile` | **none yet** | **none yet** |
+| Randomized-window datasets | **missing** | `fpnt_*_mixed` | **missing** | **missing** |
+
+DCFM and Watchdog were imported from the partner's repository on 2026-09-11 —
+see [PARTNER-IMPORT.md](PARTNER-IMPORT.md) for exactly what came from where.
 
 ## Verified at handoff
 
@@ -62,6 +67,21 @@ newer ns-3 is possible but would invalidate the datasets, which are tied to
 ns-3.47 behaviour.
 
 ## Known issues
+
+### 0. Two issues introduced by the four-defense merge
+
+**`dcfm-defense` and `watchdog-defense` crash `routing-olsr-regression`.** Both
+carry `Config::Connect` where `Config::ConnectFailSafe` is needed — the same
+fault `trust-defense` had and that was fixed there. The partner's code was
+imported verbatim by decision, so it was left in place. One line in each file;
+the fix is visible in `trust-defense`'s history if you want it.
+
+**`master` is on a different ns-3 release than the four defense branches.** It
+is `3-dev`; all four defense branches are `3.47`. `master` also still carries the
+pre-LISTENER-17 feature collector and the old TRUST harness. It works fine as the
+home for shared tooling and docs, and `doctor` refuses to generate data there,
+but the name invites the mistake. Either merge `ns-3.47` into it or rename it to
+something like `shared-base`.
 
 Listed honestly, in rough order of how likely they are to cost you time.
 
@@ -149,7 +169,7 @@ Roughly in order of value per unit of effort.
 
 5. **Unify the two defenses onto one branch**, if side-by-side comparison within
    a single run ever becomes important.
-   [ARCHITECTURE.md](ARCHITECTURE.md#why-two-branches) sets out exactly what
+   [ARCHITECTURE.md](ARCHITECTURE.md#why-four-branches) sets out exactly what
    conflicts: the `olsr-header.h` message-format divergence is mechanical, the
    strategy interfaces union cleanly, and the only real design decision is the
    HELLO re-flooding rule. Note that this would break comparability with the

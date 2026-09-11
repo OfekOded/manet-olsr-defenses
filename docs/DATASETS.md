@@ -11,6 +11,12 @@ Schema `header_version=8`, harness `3.0.0`, collector schema v6
 (LISTENER-17) — identical across every batch, so all of them are directly
 comparable. See [SCHEMA.md](SCHEMA.md).
 
+**Coverage is uneven across the four defenses.** TRUST and FPNT have full
+batches; DCFM and Watchdog have none yet — their code produces exactly the same
+schema (verified: all four binaries emit an identical 22-column header) but no
+full run has been made here. See
+[What is missing](#what-is-missing) below for the commands.
+
 ## The eight batches
 
 | Batch | Defense | Branch | Mobility | Window order | Start seed | Accepted | Feature rows |
@@ -136,6 +142,41 @@ directly, which applies no defense flags of its own:
 ```bash
 ./tools/run_simulations.sh -n 2000 -j 12 --direct --defense trust -o datasets/trust_mobile_v1 --start-seed 6000001 --max-attempts 8000 --extra "--bMobility=true"
 ```
+
+## What is missing
+
+No full LISTENER-17 batches exist for **DCFM** or **Watchdog**. Their harnesses
+were imported working and smoke-tested (5 runs each, correct 22-column output,
+both defense states exercised), but generating the real batches is hours of
+compute per batch and was not done.
+
+To produce them, matching the seed ranges already reserved in each branch's
+`tools/defense.manifest`:
+
+```bash
+./tools/olsr-research.sh use dcfm
+```
+
+```bash
+./tools/olsr-research.sh batch -n 2000 -j 12 --detach
+```
+
+```bash
+./tools/olsr-research.sh use watchdog
+```
+
+```bash
+./tools/olsr-research.sh batch -n 2000 -j 12 --detach
+```
+
+Reserved seed ranges, disjoint from the existing batches by construction:
+
+| Defense | static | mobile | static mixed | mobile mixed |
+|---|---|---|---|---|
+| FPNT | 1 | 2 000 001 | 10 000 001 | 12 000 001 |
+| TRUST | 4 000 001 | 6 000 001 | 14 000 001 | 16 000 001 |
+| DCFM | 20 000 001 | 22 000 001 | 30 000 001 | 32 000 001 |
+| Watchdog | 24 000 001 | 26 000 001 | 34 000 001 | 36 000 001 |
 
 ## Superseded output directories
 
