@@ -1,9 +1,18 @@
 #!/bin/bash
 # =============================================================================
 # run_simulations.sh
-#   Resumable, parallel batch runner for the OLSR defense-evaluation harnesses
-#   (FPNT / Watchdog / DCFM). Select a defense with --defense or --scratch.
+#   Resumable, parallel batch runner for the OLSR defense-evaluation harnesses.
+#   Select a defense with --defense or --scratch; the default comes from
+#   tools/defense.manifest, so on each branch it is already the right one.
 #   POST-AUDIT REWRITE (Phase 2).
+#
+#   This is the low-level runner. Most of the time you want the wrapper:
+#
+#       ./tools/olsr-research.sh run --mobile -n 2000
+#
+#   which reads the manifest and applies the current defense's required flags
+#   for you. Call this script directly only when you need an option the
+#   wrapper does not expose.
 # =============================================================================
 #
 # CHANGELOG (Phase 2):
@@ -59,12 +68,15 @@ Required:
 Optional:
   -j, --jobs J                Parallel workers (default: 1).
   -o, --output-dir DIR        Output directory (default: ./simulations/features).
-      --ns3-dir DIR           Path to ns-3-dev root (default: ./).
+      --ns3-dir DIR           Path to ns-3-dev root (default: the git root).
       --defense NAME          Convenience selector for the defense harness:
-                              one of {fpnt, watchdog, dcfm, trust}. Maps to the
-                              matching scratch program. Mutually exclusive
-                              with --scratch (unless they agree).
-      --scratch NAME          Scratch program name (default: olsr-fpnt-eval-mitigation).
+                              one of {trust, fpnt, dcfm, watchdog}. Maps to
+                              the matching scratch program. Mutually exclusive
+                              with --scratch (unless they agree). NOTE: each
+                              defense only exists on its own branch; see
+                              './tools/olsr-research.sh use'.
+      --scratch NAME          Scratch program name (default: from
+                              tools/defense.manifest on this branch).
                               Use this to point at a non-standard binary;
                               otherwise prefer --defense.
       --start-seed S          Starting seed (default: 1).
@@ -72,8 +84,21 @@ Optional:
       --calibrate [N]         Pre-flight N attempts (default 200 if no arg) to measure yield.
                               Auto-sets --max-attempts = ceil(N_TARGET / yield * 1.3).
       --fresh                 DESTRUCTIVE: wipe runstate + all CSVs before running.
+                              Prompts for confirmation on a terminal; pass
+                              --yes to confirm non-interactively.
+      --yes                   Answer the --fresh confirmation prompt. Required
+                              when stdin is not a terminal, so a detached run
+                              fails fast instead of hanging on the prompt.
       --skip-smoke            Skip the pre-flight smoke run (NOT RECOMMENDED).
       --extra "ARGS"          Extra args to forward to the harness (e.g. "--bMobility=true").
+      --direct                Invoke build/scratch/<binary> directly instead
+                              of './ns3 run'. Skips the per-attempt cmake
+                              build check: ~20% faster per attempt, and avoids
+                              6 workers driving cmake against one build dir at
+                              once. YOU are then responsible for the binary
+                              being current -- the script refuses to start if
+                              the binary is older than its .cc or any
+                              scratch/*.h it includes.
       --random-window-order   Randomize the 4 measurement windows per run
                               (forwards --randomWindowOrder=1; permutation
                               seeded by each run's seed).
@@ -122,20 +147,35 @@ EOF
 N_TARGET=""
 JOBS=1
 OUT_DIR="./simulations/features"
-NS3_DIR="./"
-DEFENSE=""                            # GEN: --defense {fpnt|watchdog|dcfm} selector
-SCRATCH="olsr-fpnt-eval-mitigation"   # default; overridden by --defense or --scratch
+
+# The ns-3 root defaults to the git root rather than the current directory, so
+# the runner works from anywhere in the tree and from any clone path.
+NS3_DIR="$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
+
+# The default scratch program comes from the branch's manifest. Hardcoding one
+# here was the old source of "wrong defense for this branch" errors: the
+# default used to be the FPNT harness, which does not exist on trust-defense.
+DEFENSE=""                            # --defense {trust|fpnt} selector
+SCRATCH=""                            # resolved from the manifest below
 SCRATCH_EXPLICIT=0                     # set to 1 when --scratch is passed explicitly
+if [[ -f "$NS3_DIR/tools/defense.manifest" ]]; then
+  # shellcheck source=/dev/null
+  . "$NS3_DIR/tools/defense.manifest"
+  [[ -n "${SCRATCH_TARGET:-}" ]] && SCRATCH="$SCRATCH_TARGET"
+fi
+SCRATCH="${SCRATCH:-olsr-fpnt-eval-mitigation}"
 START_SEED=1
 MAX_ATTEMPTS=""
 CALIBRATE_REQUESTED=0
 CALIBRATE_N=200
 FRESH=0
+ASSUME_YES=0                 # --yes: confirm --fresh without a prompt
 SKIP_SMOKE=0
 EXTRA_ARGS=""
 RANDOMIZE_WINDOWS=0          # WIN-001: forward --randomWindowOrder to harness
 MIXED_FRACTION=0             # WIN-004: >0 => orchestrator split mode
 MIXED_SEED_OFFSET=100000000  # WIN-004: disjoint seed range for mixed batch
+DIRECT=0                     # DIR-001: call the built binary instead of ./ns3 run
 
 # Absolute path to this script, for self-re-invocation in orchestrator mode.
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
@@ -156,9 +196,11 @@ while [[ $# -gt 0 ]]; do
       if [[ $# -ge 2 && "$2" =~ ^[0-9]+$ ]]; then CALIBRATE_N="$2"; shift 2
       else shift; fi ;;
     --fresh)             FRESH=1; shift ;;
+    --yes|-y)            ASSUME_YES=1; shift ;;
     --skip-smoke)        SKIP_SMOKE=1; shift ;;
     --extra)             EXTRA_ARGS="$2"; shift 2 ;;
     --random-window-order) RANDOMIZE_WINDOWS=1; shift ;;
+    --direct)            DIRECT=1; shift ;;
     --mixed-fraction)    MIXED_FRACTION="$2"; shift 2 ;;
     --mixed-seed-offset) MIXED_SEED_OFFSET="$2"; shift 2 ;;
     -h|--help)           usage; exit 0 ;;
@@ -176,18 +218,22 @@ if ! [[ "$JOBS" =~ ^[0-9]+$ && "$JOBS" -gt 0 ]]; then
   echo "ERROR: --jobs must be a positive integer." >&2; exit 1
 fi
 
-# --- GEN: resolve --defense {fpnt|watchdog|dcfm} -> scratch program ----------
+# --- resolve --defense {trust|fpnt|dcfm|watchdog} -> scratch program ---------
 # --defense is a convenience selector mapping to the per-defense scratch binary.
 # --scratch still works directly; passing both is an error unless they agree.
 # Resolved here (before any orchestrator self-re-invocation) so child batches
 # inherit the concrete --scratch.
+#
+# All four defenses have a harness, each on its own branch. Naming a defense
+# that is not on the current branch is caught by the existence check below,
+# which tells you which branch to switch to.
 if [[ -n "$DEFENSE" ]]; then
   case "$DEFENSE" in
-    fpnt)     mapped="olsr-fpnt-eval-mitigation" ;;
-    watchdog) mapped="olsr-watchdog-eval-mitigation" ;;
-    dcfm)     mapped="olsr-dcfm-eval-mitigation" ;;
     trust)    mapped="olsr-trust-eval-mitigation" ;;
-    *) echo "ERROR: --defense must be one of: fpnt, watchdog, dcfm, trust." >&2; exit 1 ;;
+    fpnt)     mapped="olsr-fpnt-eval-mitigation" ;;
+    dcfm)     mapped="olsr-dcfm-eval-mitigation" ;;
+    watchdog) mapped="olsr-watchdog-eval-mitigation" ;;
+    *) echo "ERROR: --defense must be one of: trust, fpnt, dcfm, watchdog." >&2; exit 1 ;;
   esac
   if [[ $SCRATCH_EXPLICIT -eq 1 && "$SCRATCH" != "$mapped" ]]; then
     echo "ERROR: --defense '$DEFENSE' implies --scratch '$mapped', but" >&2
@@ -202,11 +248,21 @@ fi
 # --scratch, or the default.
 case "$SCRATCH" in
   *fpnt*)     DEFENSE_LABEL="FPNT-OLSR" ;;
-  *watchdog*) DEFENSE_LABEL="Watchdog-OLSR" ;;
-  *dcfm*)     DEFENSE_LABEL="DCFM-OLSR" ;;
   *trust*)    DEFENSE_LABEL="Trust-OLSR" ;;
+  *dcfm*)     DEFENSE_LABEL="DCFM-OLSR" ;;
+  *watchdog*) DEFENSE_LABEL="Watchdog-OLSR" ;;
   *)          DEFENSE_LABEL="$SCRATCH" ;;
 esac
+
+# A harness that is not on this branch cannot be built, let alone run. Say so
+# here rather than letting it surface as a confusing "no binary" error later.
+if [[ ! -f "$NS3_DIR/scratch/$SCRATCH.cc" ]]; then
+  echo "ERROR: $NS3_DIR/scratch/$SCRATCH.cc does not exist on this branch" >&2
+  echo "       (branch: $(git -C "$NS3_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown))." >&2
+  echo "       Each defense lives on its own branch. Switch with:" >&2
+  echo "         ./tools/olsr-research.sh use <trust|fpnt|dcfm|watchdog>" >&2
+  exit 1
+fi
 
 # --- canonicalize paths -----------------------------------------------------
 mkdir -p "$OUT_DIR"
@@ -218,6 +274,55 @@ NS3_DIR="$(cd "$NS3_DIR" && pwd)"
 if [[ ! -x "$NS3_DIR/ns3" ]]; then
   echo "ERROR: '$NS3_DIR/ns3' is not executable (build ns-3 first)." >&2; exit 1
 fi
+
+# --- DIR-001: resolve the built binary for --direct -------------------------
+# Refuses a binary older than its sources, because with --direct nothing else
+# would notice: './ns3 run' rebuilds, a direct call happily runs stale code and
+# writes plausible-looking rows from the previous revision.
+BIN_PATH=""
+if [[ $DIRECT -eq 1 ]]; then
+  BIN_PATH="$(find "$NS3_DIR/build/scratch" -maxdepth 1 -type f -name "*${SCRATCH}*" -perm -u+x 2>/dev/null | head -1)"
+  if [[ -z "$BIN_PATH" || ! -x "$BIN_PATH" ]]; then
+    echo "ERROR: --direct: no built binary matching '*${SCRATCH}*' in" >&2
+    echo "       $NS3_DIR/build/scratch" >&2
+    echo "       Build it first: cd $NS3_DIR && ./ns3 build" >&2
+    exit 1
+  fi
+  SRC_PATH="$NS3_DIR/scratch/$SCRATCH.cc"
+  if [[ -f "$SRC_PATH" && "$SRC_PATH" -nt "$BIN_PATH" ]]; then
+    echo "ERROR: --direct: $BIN_PATH is OLDER than $SRC_PATH (stale build)." >&2
+    exit 1
+  fi
+  for hdr in "$NS3_DIR"/scratch/*.h; do
+    if [[ -f "$hdr" && "$hdr" -nt "$BIN_PATH" ]]; then
+      echo "ERROR: --direct: $BIN_PATH is OLDER than $hdr (stale build)." >&2
+      exit 1
+    fi
+  done
+  echo "[direct] binary: $BIN_PATH"
+fi
+
+# --- confirmation for destructive actions (--fresh) -------------------------
+# The old code called `read -p` unconditionally. Under nohup/setsid -- which is
+# how long batches are launched -- stdin is /dev/null, so the prompt consumed
+# EOF and the run aborted, or worse, hung. Now a non-interactive caller must
+# say --yes explicitly and gets a clear error if it did not.
+confirm_destructive() {
+  if [[ $ASSUME_YES -eq 1 ]]; then
+    echo "--yes given; proceeding without a prompt."
+    return 0
+  fi
+  if [[ ! -t 0 ]]; then
+    echo "ERROR: --fresh needs confirmation but stdin is not a terminal." >&2
+    echo "       Re-run with --yes if you really mean to delete this data." >&2
+    return 1
+  fi
+  local confirm
+  read -r -p "Confirm by typing YES: " confirm
+  [[ "$confirm" == "YES" ]] && return 0
+  echo "Aborted."
+  return 1
+}
 
 # --- validate the new Phase-3 flags ----------------------------------------
 if ! [[ "$MIXED_FRACTION" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
@@ -256,8 +361,7 @@ if awk -v f="$MIXED_FRACTION" 'BEGIN{exit !(f>0)}'; then
     echo "    $NORMAL_DIR"
     echo "    $MIXED_DIR"
     echo "======================================================================="
-    read -r -p "Confirm by typing YES: " confirm
-    if [[ "$confirm" != "YES" ]]; then echo "Aborted."; exit 1; fi
+    confirm_destructive || exit 1
     rm -rf "$NORMAL_DIR" "$MIXED_DIR"
     echo "Wiped."
   fi
@@ -265,6 +369,7 @@ if awk -v f="$MIXED_FRACTION" 'BEGIN{exit !(f>0)}'; then
   # Common pass-through args (NOT -n, -o, --fresh, --start-seed,
   # --mixed-fraction, --random-window-order; those are set per child).
   PASS=( --ns3-dir "$NS3_DIR" --scratch "$SCRATCH" )
+  [[ $DIRECT -eq 1 ]]              && PASS+=( --direct )
   [[ "$JOBS" != "1" ]]             && PASS+=( -j "$JOBS" )
   [[ -n "$MAX_ATTEMPTS" ]]         && PASS+=( --max-attempts "$MAX_ATTEMPTS" )
   [[ $CALIBRATE_REQUESTED -eq 1 ]] && PASS+=( --calibrate "$CALIBRATE_N" )
@@ -337,10 +442,7 @@ if [[ $FRESH -eq 1 ]]; then
   echo "           windows_oracle.csv, probe.csv, defense_params.txt,"
   echo "           .runstate/, .staging/"
   echo "======================================================================="
-  read -r -p "Confirm by typing YES: " confirm
-  if [[ "$confirm" != "YES" ]]; then
-    echo "Aborted."; exit 1
-  fi
+  confirm_destructive || exit 1
   rm -rf "$RUNSTATE_DIR" "$OUT_DIR/.staging"
   rm -f  "$RUNS_FILE" "$FEATURES_FILE" "$LABELS_FILE" "$ORACLE_FILE" "$PROBE_FILE" "$DEFPARAMS_FILE"
   echo "Wiped. Resuming."
@@ -407,7 +509,13 @@ extract_rejection_reason() {
 verify_headers() {
   # Get current headers from the harness.
   local hdr_output
-  if ! hdr_output="$(cd "$NS3_DIR" && ./ns3 run "$SCRATCH --emit-header" 2>/dev/null)"; then
+  if [[ $DIRECT -eq 1 ]]; then
+    hdr_output="$("$BIN_PATH" --emit-header 2>/dev/null)" || hdr_output=""
+    if [[ -z "$hdr_output" ]]; then
+      echo "ERROR: --emit-header via $BIN_PATH produced nothing." >&2
+      return 1
+    fi
+  elif ! hdr_output="$(cd "$NS3_DIR" && ./ns3 run "$SCRATCH --emit-header" 2>/dev/null)"; then
     echo "ERROR: failed to run --emit-header; cannot verify schema." >&2
     echo "  Check that the scratch program builds: cd $NS3_DIR && ./ns3 build" >&2
     return 1
@@ -470,18 +578,38 @@ run_one() {
 
   # The harness writes to all four output files directly (with internal
   # flock for atomicity). We just pass paths and the seed.
+  if [[ $DIRECT -eq 1 ]]; then
+    # DIR-001: same arguments, no cmake in the hot path. $EXTRA_ARGS and
+    # $RWO_ARG stay unquoted so they word-split exactly as they do below.
+    ( cd "$NS3_DIR" && "$BIN_PATH" \
+        --run=$seed \
+        --seed=1 \
+        --runsFile="$RUNS_FILE" \
+        --featuresFile="$FEATURES_FILE" \
+        --labelsFile="$LABELS_FILE" \
+        --oracleFile="$ORACLE_FILE" \
+        --topologyProbeFile="$PROBE_FILE" \
+        --defenseParamsFile="$DEFPARAMS_FILE" \
+        --outputDir="$OUT_DIR" \
+        $EXTRA_ARGS $RWO_ARG \
+    ) >"$logfile" 2>&1
+  else
+  # Paths are single-quoted inside the one argument './ns3 run' receives,
+  # because ns3 re-splits that string on whitespace. Unquoted, any output
+  # directory containing a space silently became several arguments.
   (cd "$NS3_DIR" && ./ns3 run "$SCRATCH \
       --run=$seed \
       --seed=1 \
-      --runsFile=$RUNS_FILE \
-      --featuresFile=$FEATURES_FILE \
-      --labelsFile=$LABELS_FILE \
-      --oracleFile=$ORACLE_FILE \
-      --topologyProbeFile=$PROBE_FILE \
-      --defenseParamsFile=$DEFPARAMS_FILE \
-      --outputDir=$OUT_DIR \
+      --runsFile='$RUNS_FILE' \
+      --featuresFile='$FEATURES_FILE' \
+      --labelsFile='$LABELS_FILE' \
+      --oracleFile='$ORACLE_FILE' \
+      --topologyProbeFile='$PROBE_FILE' \
+      --defenseParamsFile='$DEFPARAMS_FILE' \
+      --outputDir='$OUT_DIR' \
       $EXTRA_ARGS $RWO_ARG" \
       ) >"$logfile" 2>&1
+  fi
   local rc=$?
   local ts
   ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -645,6 +773,9 @@ CALIBRATE_REQUESTED=$CALIBRATE_REQUESTED
 CALIBRATE_N=$CALIBRATE_N
 EXTRA_ARGS=$EXTRA_ARGS
 RANDOMIZE_WINDOWS=$RANDOMIZE_WINDOWS
+DIRECT=$DIRECT
+GIT_BRANCH=$(git -C "$NS3_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)
+GIT_COMMIT=$(git -C "$NS3_DIR" rev-parse HEAD 2>/dev/null || echo unknown)
 DATE_STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 EOF
 
