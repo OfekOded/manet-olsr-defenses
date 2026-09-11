@@ -31,14 +31,33 @@
 #                             being comparable.
 # =============================================================================
 
-DEFENSE_ID=none
-DEFENSE_NAME="no defense (shared base branch)"
-DEFENSE_BRANCH=master
-PAPER=""
-SCRATCH_TARGET=""
+DEFENSE_ID=watchdog
+DEFENSE_NAME="Watchdog-OLSR"
+DEFENSE_BRANCH=watchdog-defense
+PAPER="Baiad, Otrok, Muhaidat & Bentahar -- Cooperative Cross Layer Detection for Blackhole Attack in VANET-OLSR, IEEE IWCMC (2014)"
+SCRATCH_TARGET=olsr-watchdog-eval-mitigation
+
+# Deliberately empty. As with DCFM, OlsrWatchdogDefense's "Enabled" attribute
+# defaults to false and the harness owns that toggle, flipping it per
+# measurement window through SetDefenseState(). That is the 2x2 design, not a
+# misconfiguration; defense_params.txt in each output directory records what
+# was actually in effect.
+#
+# NOT the classic Marti et al. watchdog. This one is CROSS-LAYER: it
+# corroborates forwarding observations with RTS/CTS evidence and MAC failures,
+# per-node and with no inter-node cooperation messages. Its 16 attributes are
+# listed in docs/RUNNING.md; four of them are documented "INERT." in the
+# source and retained only so older scripts keep parsing.
+#
+# Unlike the other three, this branch's routing protocol carries NO
+# promiscuous-monitoring code -- the defense object schedules its own periodic
+# check (m_periodicEvent) and draws its evidence from the forwarding and
+# MAC-failure hooks. The empty HandleDefenseTimer() in the routing protocol is
+# therefore correct here, not an oversight.
 DEFENSE_FLAGS=""
 
-BATCH_SEED_STATIC=1
-BATCH_SEED_MOBILE=2000001
-BATCH_SEED_STATIC_MIXED=10000001
-BATCH_SEED_MOBILE_MIXED=12000001
+# Disjoint from trust (4M/6M), fpnt (1/2M) and dcfm (20M/22M).
+BATCH_SEED_STATIC=24000001
+BATCH_SEED_MOBILE=26000001
+BATCH_SEED_STATIC_MIXED=34000001
+BATCH_SEED_MOBILE_MIXED=36000001

@@ -1,0 +1,363 @@
+/*
+ * Cross-Layer Cooperative Watchdog Defense for OLSR
+ *
+ * Based on:
+ *   R. Baiad, H. Otrok, S. Muhaidat, J. Bentahar,
+ *   "Cooperative Cross Layer Detection for Blackhole Attack in VANET-OLSR",
+ *   IEEE IWCMC 2014.
+ *
+ * Adapted for NS-3 with the following design decisions:
+ *   - Per-node independent detection (no inter-node cooperation messages).
+ *   - Local blacklist enforced by OLSR via the existing IsMalicious() hook.
+ *   - Emergent isolation: when multiple neighbors independently blacklist an
+ *     attacker, it is practically isolated from the network.
+ *
+ * Implements the OlsrDefenseStrategy interface.
+ */
+
+#ifndef OLSR_WATCHDOG_DEFENSE_H
+#define OLSR_WATCHDOG_DEFENSE_H
+
+#include "olsr-defense-strategy.h"
+
+#include "ns3/event-id.h"
+#include "ns3/mac48-address.h"
+#include "ns3/nstime.h"
+#include "ns3/wifi-phy.h"
+#include "ns3/wifi-mac-header.h"
+
+#include <cstddef>
+#include <map>
+#include <set>
+#include <vector>
+
+namespace ns3 {
+namespace olsr {
+
+/**
+ * \brief Cross-layer cooperative watchdog defense against Blackhole attacks.
+ *
+ * Each node runs an independent watchdog that:
+ *   1. Records packets it forwarded to each direct neighbor.
+ *   2. Promiscuously listens for that neighbor retransmitting the packet.
+ *   3. If the neighbor does not retransmit within a timeout, examines MAC
+ *      layer evidence (RTS/CTS of that neighbor to the next hop) to
+ *      distinguish an intentional drop from a legitimate collision.
+ *   4. Blacklists the neighbor after enough independent evidences accumulate.
+ *
+ * The blacklist is local; OLSR calls IsMalicious() during MPR computation and
+ * routing table construction, which results in the attacker being excluded
+ * from all routing paths computed by this node.
+ */
+class OlsrWatchdogDefense : public OlsrDefenseStrategy
+{
+public:
+    static TypeId GetTypeId();
+
+    OlsrWatchdogDefense();
+    ~OlsrWatchdogDefense() override;
+
+    // === OlsrDefenseStrategy interface ===
+
+    void Setup(RoutingProtocol* proto, Ipv4Address nodeAddress) override;
+    void DoDispose() override;
+
+    bool IsMalicious(Ipv4Address addr) override;
+    std::set<Ipv4Address> GetBlacklist() const override;
+
+    // Master on/off switch (the "Enabled" attribute is wired to these).
+    // SetEnabled clears stale state on the false->true transition so that
+    // packets in flight at toggle time don't produce false positives.
+    void SetEnabled(bool enabled);
+    bool IsEnabled() const { return m_enabled; }
+
+    // Alias for IsEnabled(), provided so the evaluation harness can query the
+    // master switch through the same getter name it uses for other defenses.
+    bool GetEnabled() const { return m_enabled; }
+
+    // ---- Debug / leak-verification support ----
+    // Snapshot of the sizes of every accumulated-state container, used by the
+    // evaluation harness (with --debugDefenseState) to confirm that the
+    // slot-transition cold start really emptied the defense. Reports the ACTUAL
+    // container sizes (NOT gated by m_enabled), so immediately after a reset
+    // every field must read zero regardless of the enabled flag.
+    struct DebugStateSizes
+    {
+        std::size_t blacklist        = 0; //!< # addresses currently blacklisted
+        std::size_t pendingNeighbors = 0; //!< # neighbors with >=1 pending packet
+        std::size_t pendingTotal     = 0; //!< total pending packet entries
+        std::size_t neighborStats    = 0; //!< # neighbors tracked in m_neighborStats
+        std::size_t macToIp          = 0; //!< # learned MAC->IP mappings
+        std::size_t selfDropsWindow  = 0; //!< current local-PHY-drop counter
+        std::size_t selfDropsPrev    = 0; //!< previous-round local-PHY-drop counter
+    };
+    DebugStateSizes GetDebugStateSizes() const;
+
+    // Control plane (unused - not relevant for pure blackhole detection)
+    void OnRecvHello(Ipv4Address senderAddress,
+                     Ptr<const Packet> packet,
+                     const MessageHeader& msg,
+                     const MessageHeader::Hello& hello) override;
+    void OnRecvTc(Ipv4Address senderIfaceAddr,
+                  Ptr<const Packet> packet,
+                  const MessageHeader& msg,
+                  const MessageHeader::Tc& tc) override;
+    void OnTcGenerated(const MessageHeader::Tc& tc) override;
+
+    // Data plane (core of detection)
+    void OnDataPacketReceived(Ptr<const Packet> packet,
+                              Ipv4Address source,
+                              Ipv4Address destination,
+                              Ipv4Address nextHop) override;
+    void OnDataPacketForwarded(Ptr<const Packet> packet,
+                               Ipv4Address nextHop,
+                               Ipv4Address finalDest) override;
+    void OnDataPacketDropped(Ptr<const Packet> packet,
+                             Ipv4Address source,
+                             Ipv4Address destination,
+                             DropReason reason) override;
+
+    // Promiscuous / cross-layer (core of detection)
+    void OnNeighborForwardedPacket(Mac48Address transmitter,
+                                   Mac48Address receiver,
+                                   Ptr<const Packet> packet) override;
+    void OnRtsReceived(Mac48Address sender, Mac48Address receiver) override;
+    void OnCtsReceived(Mac48Address receiver) override;
+    void OnMacTxFailure(Ipv4Address neighbor, uint32_t count) override;
+    void OnSelfReliabilityReport(uint32_t localDropsCount) override;
+
+    // Unused
+    void OnQueueStatusReport(uint32_t size, uint32_t capacity) override;
+    void OnEnergyStateUpdate(double remainingEnergyJoules,
+                             double energyFraction) override;
+    bool RequiresFictitiousNode() override;
+
+    // Periodic aggregation and decision logic
+    void PeriodicCheck() override;
+
+private:
+    // ----- Internal data structures -----
+
+    /** Packet we forwarded to a neighbor and expect them to forward onward. */
+    struct PendingPacket
+    {
+        uint64_t packetUid;     //!< Preserved across hops in NS-3.
+        Ipv4Address finalDest;  //!< Ultimate destination (for context only).
+        Time sentTime;          //!< When we forwarded it.
+    };
+
+    /** Per-neighbor observation counters. */
+    struct NeighborStats
+    {
+        uint32_t packetsSentTo = 0;        //!< # packets we forwarded via this neighbor
+        uint32_t packetsForwarded = 0;     //!< # we observed being retransmitted
+        uint32_t notForwardedEvidence = 0; //!< Aggregate evidence of blackhole behavior
+        uint32_t macTxFailures = 0;        //!< # times our RTS to them timed out
+        uint32_t rtsFromThisNode = 0;      //!< # RTS frames observed with them as sender (cumulative, logging only)
+        uint32_t dataFromThisNode = 0;     //!< # DATA frames observed with them as sender
+        Time lastActivityTime = Seconds(0);
+
+        // ---- MAC-layer collision evidence (Baiad et al., cross-layer test) ----
+        // The papers describe the MAC monitor as counting "the number of RTS
+        // sent and CTS received"; a discrepancy indicates that the loss was
+        // caused by channel contention rather than by an intentional drop, and
+        // the corresponding watchdog report is then voided (Alg. 4 Part A).
+        //
+        // Counts are kept per aggregation round. The collision test sums the
+        // current and the immediately preceding round, so that it covers the
+        // whole lifetime of a pending packet (which may have been forwarded
+        // before the current round began) without letting a single old
+        // discrepancy exonerate the neighbour indefinitely. See B2 in
+        // DESIGN_DECISIONS.md.
+        uint32_t rtsInWindow = 0;      //!< RTS frames sent by this node, current round
+        uint32_t ctsInWindow = 0;      //!< CTS frames addressed to it, current round
+        uint32_t rtsPrevWindow = 0;    //!< Same, previous round
+        uint32_t ctsPrevWindow = 0;    //!< Same, previous round
+
+        // ---- Probation fields (anti false-positive) ----
+        // Once accumulated evidence first crosses the blacklist threshold, the
+        // neighbor is placed on probation rather than blacklisted immediately.
+        // During probation we keep collecting evidence; only if misbehavior
+        // *persists* beyond probation_until do we commit to blacklisting.
+        // This filters out transient bursts of packet loss caused by channel
+        // fluctuations, queueing, or temporary congestion.
+        bool onProbation = false;
+        Time probationUntil = Seconds(0);
+        uint32_t evidenceAtProbationStart = 0;
+
+
+        // ---- Blacklist release ([M00] §3.2) ----
+        // Marti et al.: "If a node is marked as misbehaving due to a temporary
+        // malfunction or incorrect accusation it would be preferrable if it
+        // were not permanently excluded from routing. Therefore nodes that
+        // have negative ratings should have their ratings slowly increased or
+        // set back to a non-negative value after a long timeout." They record
+        // that they did not implement this. We do.
+        Time blacklistedAt = Seconds(0);
+    };
+
+    // ----- Members -----
+
+    RoutingProtocol* m_protocol;   //!< Owning OLSR instance (raw ptr: no lifetime issue).
+    Ipv4Address m_mainAddress;     //!< Our OLSR main address.
+    Mac48Address m_myMacAddress;   //!< Our WiFi MAC (to filter out own traffic in sniffer).
+    bool m_setupDone;
+
+    std::set<Ipv4Address> m_blacklist;
+    std::map<Ipv4Address, std::vector<PendingPacket>> m_pendingByNeighbor;
+    std::map<Ipv4Address, NeighborStats> m_neighborStats;
+    std::map<Mac48Address, Ipv4Address> m_macToIp;
+
+    // Algorithm 4 Part B (Baiad et al.): MAC_s, the binary status of this
+    // node as a monitor. A watchdog that was itself suffering collisions
+    // while listening is eliminated from the aggregation for that round
+    // (weight 0) rather than having its confidence merely reduced.
+    uint32_t m_selfDropsWindow;        //!< Local PHY drops, current round.
+    uint32_t m_selfDropsPrevWindow;    //!< Local PHY drops, previous round.
+
+    // Periodic timer
+    EventId m_periodicEvent;
+
+    // PHYs we have attached our sniffer/PhyRxDrop callbacks to. We hold
+    // smart pointers so we can disconnect cleanly in DetachWifiTraces().
+    std::vector<Ptr<WifiPhy>> m_attachedPhys;
+
+    // ----- Configuration (NS-3 Attributes) -----
+    Time m_forwardTimeout;
+    Time m_periodicInterval;
+    Time m_warmupDuration;
+    Time m_probationDuration;          //!< How long a neighbor stays on probation
+    uint32_t m_blacklistThreshold;
+    double m_rtsToDataRatioThresh;
+    uint32_t m_selfDropsThreshold;
+    uint32_t m_macFailureThreshold;
+    uint32_t m_minRtsForHeuristic;
+    double m_minSelfReliability;
+    double m_macFailureRateThresh;     //!< MAC fail-rate above which link deemed unhealthy
+    uint32_t m_minDataObservations;    //!< Min DATA frames seen from neighbor before blacklisting
+    uint32_t m_rtsCtsDiscrepancyThresh; //!< (RTS - CTS) at or above which contention is inferred
+    Time m_blacklistDuration;          //!< How long a verdict stands; 0 = forever
+    bool m_verifyOnwardHop;            //!< Enable the [M00] onward-hop check
+
+    // Runtime master switch. When false, IsMalicious() returns false for
+    // all addresses (effectively disabling the blacklist) and PeriodicCheck
+    // skips all evidence accumulation. The defense object itself stays
+    // installed; this just makes its public API a transparent no-op,
+    // matching the FPNT-OLSR evaluation harness convention of toggling
+    // defenses at phase boundaries without swapping the defense pointer.
+    bool m_enabled;
+
+    // ----- Runtime state for warmup -----
+    /** Absolute time after which evidence accumulation is allowed.
+     *  Set to (Now + m_warmupDuration) at every Setup() invocation.
+     *  Before this time, EvaluateMissingForward returns without scoring,
+     *  so the defense can quietly observe the network and learn MAC<->IP
+     *  mappings (mostly via OLSR HELLO/TC broadcasts) without producing
+     *  false positives from packets in flight at activation time. */
+    Time m_warmupUntil;
+
+    // ----- Helpers -----
+
+    /** Full symmetric cold-start reset of all accumulated detection state.
+     *  Clears the blacklist, pending-packet tracking, per-neighbor stats and
+     *  the learned MAC<->IP map, zeroes the self-drop counter, restores the
+     *  self-reliability score to 1.0, and re-arms the warmup window to
+     *  (Now + m_warmupDuration). Does NOT touch configuration, identity, the
+     *  attached-PHY trace handles, or the periodic timer. Invoked from
+     *  SetEnabled() on every enabled-state transition. */
+    void ResetAccumulatedState();
+
+    /** Connects MonitorSnifferRx and PhyRxDrop callbacks on all WiFi devices. */
+    void AttachWifiTraces(Ptr<Node> node);
+
+    /** Disconnects callbacks installed by AttachWifiTraces. Idempotent.
+     *  Crucial for safety: if the strategy gets replaced via SetAttribute
+     *  but no one calls DoDispose on the old instance, the WiFi PHY traces
+     *  would still hold a callback into a soon-to-be-destroyed object. */
+    void DetachWifiTraces();
+
+    /** Locates our own Node by searching NodeList for our main address. */
+    Ptr<Node> FindOwnNode() const;
+
+    /** Called for every WiFi frame this node overhears. */
+    void SnifferRxCallback(Ptr<const Packet> pkt,
+                           uint16_t channelFreqMhz,
+                           WifiTxVector txVector,
+                           MpduInfo aMpdu,
+                           SignalNoiseDbm signalNoise,
+                           uint16_t staId);
+
+    /** Called when our own PHY drops a received frame (collision, CRC, etc). */
+    void PhyRxDropCallback(Ptr<const Packet> pkt, WifiPhyRxfailureReason reason);
+
+    /** Tries MAC->IP mapping from our learned table, then ARP caches. */
+    Ipv4Address LookupIpFromMac(Mac48Address mac) const;
+
+    /** Decision tree from the paper + user-summary when a pending packet
+     *  timed out without observing a retransmission. */
+    void EvaluateMissingForward(Ipv4Address neighbor, const PendingPacket& pp);
+
+    /** Checks whether accumulated evidence warrants blacklisting. */
+    void MaybeBlacklist(Ipv4Address neighbor);
+
+
+    /** Releases blacklist entries whose term has expired, per [M00] §3.2.
+     *  A released neighbour returns to the routing computation with its
+     *  evidence reset, so that a genuine attacker must be re-detected on fresh
+     *  observations rather than on the stale count that condemned it. A
+     *  genuine attacker is re-blacklisted within a few dropped packets; a node
+     *  wrongly accused after a link break stays free. No-op when
+     *  BlacklistDuration is zero. */
+    void ReleaseExpiredBlacklist();
+
+    /** MAC_s for this node (Baiad et al., Alg. 4 Part B). Returns false when
+     *  this watchdog was itself losing frames to collisions over the
+     *  observation window, in which case it is disqualified from scoring for
+     *  that round instead of accusing on evidence it could not reliably
+     *  gather. Binary by design: the papers define MAC_s as 0 or 1. */
+    bool LocalMacStatus() const;
+
+    /** MAC-layer exculpatory test (Baiad et al.): true when the node issued
+     *  more RTS frames than the CTS it was granted over the observation
+     *  window, which indicates channel contention rather than an intentional
+     *  drop. A watchdog report against a node for which this holds is voided
+     *  rather than scored. */
+    bool CollisionSuspectedFor(const NeighborStats& s) const;
+
+    /** Verifies that a retransmission observed from `forwarder` was addressed
+     *  to a plausible onward hop rather than into the void.
+     *
+     *  Marti et al. [M00] §3.1 note that the watchdog "works best on top of a
+     *  source routing protocol", because the forwarder's own next hop is then
+     *  carried in the packet. Under a hop-by-hop protocol such as OLSR it is
+     *  not, and they warn that "a malicious or broken node could broadcast the
+     *  packet to a non-existant node and the watchdog would have no way of
+     *  knowing". This closes that hole as far as OLSR's link-state view
+     *  allows.
+     *
+     *  Returns false only when the destination can be shown to be bogus.
+     *  When the receiver cannot be resolved the method returns true: absence
+     *  of information is not treated as evidence of misbehaviour. */
+    bool IsPlausibleOnwardHop(Mac48Address receiver, Ipv4Address forwarder) const;
+
+    /** True if `addr` appears anywhere in this node's link-state view of the
+     *  network (neighbour set, two-hop neighbour set, or topology set). Used
+     *  by IsPlausibleOnwardHop to distinguish a real relay target from a
+     *  fabricated one. */
+    bool IsKnownNode(Ipv4Address addr) const;
+
+    /** Advances the observation window by one round: the current round's
+     *  per-neighbour RTS/CTS counters and this node's local drop counter
+     *  become the previous round's, and fresh counters are started. Called at
+     *  the end of PeriodicCheck, after pending packets have been evaluated
+     *  against the window. */
+    void RotateMacWindows();
+
+    /** Attempt to read IPv4 source from a raw WiFi data MPDU. Returns false on failure. */
+    bool TryExtractIpSource(Ptr<const Packet> rawWifiPkt, Ipv4Address& outSrc) const;
+};
+
+} // namespace olsr
+} // namespace ns3
+
+#endif // OLSR_WATCHDOG_DEFENSE_H

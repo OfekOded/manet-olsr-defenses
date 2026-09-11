@@ -2,33 +2,27 @@ build_lib(
   LIBNAME olsr
   SOURCE_FILES
     helper/olsr-helper.cc
-    model/olsr-defense-strategy.cc
-    model/olsr-trust-defense.cc
     model/olsr-header.cc
     model/olsr-routing-protocol.cc
     model/olsr-state.cc
-    model/defense/olsr-alert-distributor.cc
-    model/defense/olsr-consistency-rules.cc
-    model/defense/olsr-forward-monitor.cc
-    model/defense/olsr-trust-state.cc
+    # --- Security research extension ---
+    # The defense-strategy interface plus the ONE defense this branch carries:
+    # the cross-layer Watchdog (Baiad et al., IEEE IWCMC 2014).
+    # Each defense lives on its own branch -- see docs/ARCHITECTURE.md.
+    model/olsr-defense-strategy.cc
+    model/olsr-watchdog-defense.cc
   HEADER_FILES
     helper/olsr-helper.h
-    model/olsr-defense-strategy.h
-    model/olsr-trust-defense.h
     model/olsr-header.h
+    model/olsr-repositories.h
     model/olsr-routing-protocol.h
     model/olsr-state.h
-    model/defense/olsr-alert-distributor.h
-    model/defense/olsr-consistency-rules.h
-    model/defense/olsr-forward-monitor.h
-    model/defense/olsr-provable-identity.h
-    model/defense/olsr-repositories.h
-    model/defense/olsr-trust-config.h
-    model/defense/olsr-trust-state.h
+    model/olsr-defense-strategy.h
+    model/olsr-watchdog-defense.h
   LIBRARIES_TO_LINK
     ${libinternet}
-    ${libwifi}
-    ${libtraffic-control}
+    ${libwifi}            # PHY/MAC access: RTS/CTS and MAC-failure evidence
+    ${libtraffic-control} # QueueDisc monitoring
   TEST_SOURCES
     test/regression-test-suite.cc
     test/bug780-test.cc
