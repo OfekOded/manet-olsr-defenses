@@ -54,3 +54,6 @@ vcpkg/
 # OLSR defense research outputs (large, not source)
 /simulations/
 /dataset_final/
+
+# Generated datasets from tools/olsr-research.sh (large; see docs/DATASETS.md)
+/datasets/
