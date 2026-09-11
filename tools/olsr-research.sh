@@ -2,23 +2,26 @@
 # =============================================================================
 # olsr-research.sh -- single entry point for the OLSR trust-defense research.
 #
-# This repository evaluates two published trust-based defenses against a
-# blackhole/link-spoofing attacker in OLSR. Each defense compiles DIFFERENT
-# src/olsr code, so each lives on its own git branch:
+# This repository evaluates four published defenses against a blackhole /
+# link-spoofing attacker in OLSR. Each defense compiles DIFFERENT src/olsr
+# code, so each lives on its own git branch:
 #
-#     trust-defense  TRUST-OLSR  (Adnane, Bidan & de Sousa, 2013)
-#     fpnt-defense   FPNT-OLSR   (Tan, Li & Dong, 2015)
+#     trust-defense     TRUST-OLSR     (Adnane, Bidan & de Sousa, 2013)
+#     fpnt-defense      FPNT-OLSR      (Tan, Li & Dong, 2015)
+#     dcfm-defense      DCFM-OLSR      (Schweitzer et al., 2024)
+#     watchdog-defense  Watchdog-OLSR  (Baiad et al., 2014)
 #
-# Everything that differs between the two is declared in ONE file,
+# Everything that differs between them is declared in ONE file,
 # tools/defense.manifest, which each branch carries its own copy of. This
 # script is byte-identical on every branch and reads that manifest, so you
 # never have to remember which flags go with which defense -- in particular
-# the two TRUST flags without which the defense is mostly switched off (see
+# the two TRUST flags without which that defense is mostly switched off (see
 # docs/RUNNING.md, "The TRUST default-flags trap").
 #
 # Commands:
 #     doctor            check the toolchain, the branch and the build
-#     use <trust|fpnt>  switch to that defense's branch and build it
+#     use <defense>     switch to that defense's branch and build it
+#                       (trust | fpnt | dcfm | watchdog)
 #     build             (re)configure and build the current branch's harness
 #     smoke             ~5 runs, a couple of minutes, proves the chain works
 #     run [opts]        one dataset batch for the current defense
@@ -46,9 +49,11 @@ DEFAULT_OUT_ROOT="$REPO_ROOT/datasets"
 # from a short name to a branch name is written down.
 defense_branch() {
     case "$1" in
-        trust) echo "trust-defense" ;;
-        fpnt)  echo "fpnt-defense"  ;;
-        *)     return 1 ;;
+        trust)    echo "trust-defense"    ;;
+        fpnt)     echo "fpnt-defense"     ;;
+        dcfm)     echo "dcfm-defense"     ;;
+        watchdog) echo "watchdog-defense" ;;
+        *)        return 1 ;;
     esac
 }
 
@@ -96,8 +101,10 @@ require_defense() {
         echo "  This branch holds the shared tooling and documentation only."
         echo "  Pick a defense to work on:"
         echo
-        echo "      ./tools/olsr-research.sh use trust     # TRUST-OLSR  (Adnane et al., 2013)"
-        echo "      ./tools/olsr-research.sh use fpnt      # FPNT-OLSR   (Tan et al., 2015)"
+        echo "      ./tools/olsr-research.sh use trust     # TRUST-OLSR     (Adnane et al., 2013)"
+        echo "      ./tools/olsr-research.sh use fpnt      # FPNT-OLSR      (Tan et al., 2015)"
+        echo "      ./tools/olsr-research.sh use dcfm      # DCFM-OLSR      (Schweitzer et al., 2024)"
+        echo "      ./tools/olsr-research.sh use watchdog  # Watchdog-OLSR  (Baiad et al., 2014)"
         echo
         rule
         exit 1
@@ -188,7 +195,7 @@ cmd_doctor() {
     if [[ "$DEFENSE_ID" == "none" ]]; then
         echo "Defense"
         info "none on this branch -- this is the shared base."
-        info "Run './tools/olsr-research.sh use trust' or '... use fpnt'."
+        info "Run './tools/olsr-research.sh use <trust|fpnt|dcfm|watchdog>'."
         rule
         return $rc
     fi
@@ -298,9 +305,9 @@ cmd_build() {
 # =============================================================================
 cmd_use() {
     local want="${1:-}"
-    [[ -n "$want" ]] || die "usage: olsr-research.sh use <trust|fpnt>"
+    [[ -n "$want" ]] || die "usage: olsr-research.sh use <trust|fpnt|dcfm|watchdog>"
     local branch
-    branch="$(defense_branch "$want")" || die "unknown defense '$want' (expected: trust, fpnt)"
+    branch="$(defense_branch "$want")" || die "unknown defense '$want' (expected: trust, fpnt, dcfm, watchdog)"
 
     if [[ "$(current_branch)" == "$branch" ]]; then
         say "already on $branch"
@@ -556,7 +563,7 @@ COMMANDS
         Check bash, the toolchain, the branch, the manifest and the build,
         then run the harness self-test. Start here.
 
-    use <trust|fpnt> [JOBS]
+    use <trust|fpnt|dcfm|watchdog> [JOBS]
         Switch to that defense's branch and build it. Refuses if the working
         tree is dirty. Always reconfigures cmake, which is mandatory after a
         branch switch because the scratch file set differs per branch.
