@@ -24,13 +24,50 @@ see [PARTNER-IMPORT.md](PARTNER-IMPORT.md) for exactly what came from where.
 
 ## Verified at handoff
 
-Both branches, 2026-09-11:
+All four branches, 2026-09-11. Every item below was run, not assumed.
 
-- `./tools/olsr-research.sh doctor` — all checks pass
-- `--self-test` — `ALL PASS`
-- `routing-olsr-regression`, `routing-olsr`, `routing-olsr-header` — all pass
-- `./tools/olsr-research.sh smoke` — produces the 22-column feature CSV
-  (5 identity + the 17 LISTENER features), identical on both branches
+**Per branch:** `doctor` reports **0 failures**; `--self-test` prints
+`ALL PASS`; the harness builds from a clean `use <defense>`.
+
+**End-to-end generation sweep — 20 accepted runs requested on each defense:**
+
+| | accepted | feature rows | rejected | errors |
+|---|---|---|---|---|
+| TRUST | 31 | 124 | 41 | 0 |
+| FPNT | 29 | 116 | 47 | 0 |
+| DCFM | 31 | 124 | 19 | 0 |
+| Watchdog | 30 | 120 | 27 | 0 |
+
+(Accepted exceeds 20 because parallel workers finish runs already in flight when
+the target is reached; the overshoot is kept, as documented in
+[RUNNING.md](RUNNING.md#resumability).)
+
+Every batch passed a structural validation, not just an "a file appeared" check:
+
+- feature header exactly the 5 identity + 17 LISTENER columns; no ragged rows
+- feature rows == label rows == oracle rows == 4 × accepted runs
+- every run carries all four scenarios exactly once
+- `defense_enabled` **and** `attack_enabled` each take both values, and all four
+  combinations appear — the 2×2 design demonstrably varied
+- all feature values numeric; **no NaN in any batch**
+- no all-zero rows; 15 of 17 features vary (the two that do not are
+  `MidMessageRate` and `HnaMessageRate`, structurally zero for this topology —
+  see [SCHEMA.md](SCHEMA.md#two-features-are-always-zero-in-this-experiment))
+- `(run_id, scenario)` keys join exactly between features and labels, no duplicates
+- provenance sidecars name the right branch, commit, seed range and
+  `defense_variant`
+
+**Cross-defense:** all four batches share one byte-identical feature header and
+one label header, and their seed ranges are disjoint by construction
+(TRUST 4 000 021…, FPNT 9…, DCFM 20 000 001…, Watchdog 24 000 001…). That is
+what makes the four datasets comparable.
+
+The verification batches were deleted afterwards; they existed only to prove the
+pipeline runs end to end.
+
+**ns-3 test suites:** `routing-olsr` and `routing-olsr-header` pass on all four
+branches. `routing-olsr-regression` passes on `trust-defense` and `fpnt-defense`
+and **crashes on `dcfm-defense` and `watchdog-defense`** — see known issue 0.
 
 Two results from that pass are worth recording, because both were latent
 problems that would have surfaced for you rather than for us.
