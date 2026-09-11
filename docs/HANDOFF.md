@@ -17,6 +17,34 @@ self-tests on both branches.
 | Canonical datasets | `trust_static_v2`, `trust_mobile_v2` | `fpnt_static`, `fpnt_mobile` |
 | Randomized-window datasets | **missing** | `fpnt_*_mixed` |
 
+## Verified at handoff
+
+Both branches, 2026-09-11:
+
+- `./tools/olsr-research.sh doctor` — all checks pass
+- `--self-test` — `ALL PASS`
+- `routing-olsr-regression`, `routing-olsr`, `routing-olsr-header` — all pass
+- `./tools/olsr-research.sh smoke` — produces the 22-column feature CSV
+  (5 identity + the 17 LISTENER features), identical on both branches
+
+Two results from that pass are worth recording, because both were latent
+problems that would have surfaced for you rather than for us.
+
+**`routing-olsr-regression` used to crash on `trust-defense`.** The cause was
+`Config::Connect` where `Config::ConnectFailSafe` was needed — a node with no
+`WifiNetDevice` matches the trace path nothing, and `Config::Connect` treats no
+match as fatal. Demonstrated both ways: reverting the one line makes the suite
+`CRASH`, restoring it makes it `PASS`. `fpnt-defense` already had the fix. The
+fault went unnoticed for as long as it did because the project only ever
+configured with `--enable-examples`, so the test suites were never built — see
+[RUNNING.md](RUNNING.md#running-the-ns-3-test-suites).
+
+**The TRUST flags are now applied automatically, and it is verifiable.** A
+plain `smoke` run on `trust-defense`, with no flags typed by hand, produces
+`enable_consistency_rules=1` and `enable_alert_distribution=1` in
+`defense_params.txt` — which is the harness reporting its own effective
+configuration, not the wrapper reporting what it passed.
+
 ## Tags
 
 | Tag | Meaning |

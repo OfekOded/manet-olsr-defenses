@@ -279,6 +279,44 @@ FPNT only (`fpnt-defense`):
 
 ---
 
+## Running the ns-3 test suites
+
+`olsr-research.sh build` configures with `--enable-examples` only — the same
+configuration that generated every dataset, and the faster one. The ns-3 test
+suites are therefore **not built**, and `./test.py` will quietly rebuild
+without them and then find nothing.
+
+To run them, reconfigure once:
+
+```bash
+./ns3 configure --enable-examples --enable-tests
+```
+
+```bash
+./ns3 build
+```
+
+```bash
+./test.py -s routing-olsr-regression
+```
+
+The three suites that exercise this module are `routing-olsr-regression`
+(system), `routing-olsr` and `routing-olsr-header` (unit). All three pass on
+both defense branches.
+
+This is worth doing after any change to `src/olsr/`. It is how the
+`Config::Connect` fault described in [HANDOFF.md](HANDOFF.md#provenance-of-the-tooling)
+was found: `routing-olsr-regression` crashed outright on `trust-defense`,
+and because the project only ever configured with `--enable-examples`, nothing
+ever ran it.
+
+Note that the next `olsr-research.sh build` or `use` reconfigures back to
+examples-only. That is intentional — it keeps dataset generation on the
+configuration the published batches used — so re-enable tests when you want
+them.
+
+---
+
 ## Troubleshooting
 
 | Symptom | Cause |
