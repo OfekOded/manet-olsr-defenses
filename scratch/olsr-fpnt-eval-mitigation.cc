@@ -1,5 +1,34 @@
 /* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
 /*
+ * FPNT-OLSR Evaluation Harness
+ * ============================
+ *
+ * Evaluates the FPNT-OLSR defense of Tan, Li & Dong (Ad Hoc Networks 30, 2015,
+ * pp. 84-98) against a link-spoofing blackhole attacker, and emits the
+ * LISTENER-17 machine-learning dataset.
+ *
+ * HOW TO RUN
+ *   Do not invoke this directly unless you know why. Use:
+ *
+ *       ./tools/olsr-research.sh use fpnt      # switch branch and build
+ *       ./tools/olsr-research.sh smoke         # 5 runs, prove it works
+ *       ./tools/olsr-research.sh run -n 2000   # a dataset batch
+ *
+ *   Unlike the TRUST harness, this one's CLI defaults already reproduce the
+ *   paper; no extra flags are required.
+ *
+ *   Two special modes, both used by the tooling:
+ *       --self-test      schema self-check; must print ALL PASS
+ *       --emit-header    print the CSV headers and exit
+ *
+ *   Full flag reference: docs/RUNNING.md.  Output schema: docs/SCHEMA.md.
+ *
+ * The TRUST harness on trust-defense is structurally identical to this file;
+ * the shared feature collector scratch/olsr_window_features.h is
+ * byte-identical on both branches ON PURPOSE, so the two defenses' datasets
+ * stay comparable.
+ *
+ * ---------------------------------------------------------------------------
  * CHANGELOG (LISTENER-17 feature schema):
  *   SL-3: the collector (olsr_window_features.h) was replaced wholesale. The
  *         95/33-column A-L schema is gone; the file now emits exactly the 17

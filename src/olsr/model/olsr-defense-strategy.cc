@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) 2024 NS-3 Security Extension Project
+ *
+ * Author: Oded Ofek <odedofek2@gmail.com>
+ *
+ * SPDX-License-Identifier: GPL-2.0-only
+ */
+
 #include "olsr-defense-strategy.h"
 #include "ns3/log.h"
 

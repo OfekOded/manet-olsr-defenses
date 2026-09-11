@@ -1,3 +1,36 @@
+/*
+ * Copyright (c) 2024 NS-3 Security Extension Project
+ *
+ * Author: Oded Ofek <odedofek2@gmail.com>
+ *
+ * olsr-defense-strategy.h -- the abstraction both trust-based defenses in this
+ * fork are written against.
+ *
+ * RoutingProtocol owns exactly one OlsrDefenseStrategy, chosen through its
+ * "DefenseStrategy" attribute, and calls into it at fixed points: a control
+ * message arrived or was generated, a data packet was forwarded or dropped,
+ * the promiscuous sniffer saw a frame, a periodic timer fired. The strategy
+ * answers one question back -- IsMalicious() -- plus the richer accessors
+ * below.
+ *
+ * The split is deliberate and worth preserving: the STRATEGY decides who is
+ * untrustworthy, the ROUTING PROTOCOL decides what to do about it. Detection
+ * and response are separately measurable that way, which is what the papers
+ * report.
+ *
+ * OlsrDefenseNull is the default: it answers "nobody is malicious" to
+ * everything. The evaluation harness swaps it in and out to turn the defense
+ * off for half of each run's measurement windows without rebuilding.
+ *
+ * Hooks added for one specific defense are declared NON-PURE with a harmless
+ * default, so a defense that does not participate in that mechanism needs no
+ * code for it at all. Only the hooks every defense must answer are pure. On
+ * this branch that applies to the trust-routing group (GetNodeTrust,
+ * IsTrustRoutingEnabled, GetEvaluationVectors, OnRecvEvaluationVectors),
+ * which FPNT-OLSR uses and a simpler defense can ignore entirely.
+ *
+ * SPDX-License-Identifier: GPL-2.0-only
+ */
 #ifndef OLSR_DEFENSE_STRATEGY_H
 #define OLSR_DEFENSE_STRATEGY_H
 
@@ -15,18 +48,43 @@ namespace olsr {
 
 class RoutingProtocol;
 
+/**
+ * @ingroup olsr
+ * @brief Why the routing protocol gave up on a data packet.
+ *
+ * Passed to OlsrDefenseStrategy::OnDataPacketDropped so a defense can tell a
+ * drop it should hold someone responsible for apart from an ordinary local
+ * failure it should not.
+ */
 enum DropReason : uint8_t {
-    DROP_NO_ROUTE = 0,
-    DROP_TTL_EXPIRED = 1,
-    DROP_QUEUE_FULL = 2
+    DROP_NO_ROUTE = 0,    //!< No route to the destination.
+    DROP_TTL_EXPIRED = 1, //!< Hop limit reached zero.
+    DROP_QUEUE_FULL = 2   //!< Local transmit queue overflowed.
 };
 
+/**
+ * @ingroup olsr
+ * @brief Interface for a trust-based defense plugged into OLSR.
+ *
+ * See the file header for the contract. Implementations in this fork:
+ * OlsrDefenseFpnt (Tan et al. 2015) on this branch, and OlsrTrustDefense
+ * (Adnane et al. 2013) on trust-defense.
+ */
 class OlsrDefenseStrategy : public Object
 {
 public:
+  /**
+   * @brief Get the type ID.
+   * @returns the object TypeId
+   */
   static TypeId GetTypeId(void);
   virtual ~OlsrDefenseStrategy() {}
 
+  /**
+   * @brief Bind this strategy to its routing protocol instance.
+   * @param proto the owning RoutingProtocol (not owned by the strategy)
+   * @param nodeAddress this node's OLSR main address
+   */
   virtual void Setup(RoutingProtocol* proto, Ipv4Address nodeAddress) = 0;
   virtual void DoDispose() = 0;
 
@@ -142,9 +200,21 @@ public:
 };
 
 // --- Null Implementation (Default) ---
+/**
+ * @ingroup olsr
+ * @brief The default strategy: no defense at all.
+ *
+ * Every hook is a no-op and IsMalicious() always answers false, so OLSR
+ * behaves exactly as RFC 3626 specifies. The evaluation harness installs this
+ * for the defense-off measurement windows.
+ */
 class OlsrDefenseNull : public OlsrDefenseStrategy
 {
 public:
+  /**
+   * @brief Get the type ID.
+   * @returns the object TypeId
+   */
   static TypeId GetTypeId(void);
 
   virtual void Setup(RoutingProtocol* proto, Ipv4Address nodeAddress) override {}
@@ -180,7 +250,7 @@ public:
   virtual bool RequiresFictitiousNode() override { return false; }
 };
 
-} 
-} 
+} // namespace olsr
+} // namespace ns3
 
-#endif
+#endif /* OLSR_DEFENSE_STRATEGY_H */

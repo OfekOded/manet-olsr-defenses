@@ -1,4 +1,11 @@
-# Ignore everything on scratch by default, except the provided examples
+# Ignore everything in scratch/ by default, except what this project tracks.
+#
+# IMPORTANT: this file is intentionally IDENTICAL on trust-defense and
+# fpnt-defense, and whitelists BOTH evaluation harnesses even though each
+# branch only carries one of them. Whitelisting only the local harness is a
+# footgun: copying or cherry-picking the other branch's harness in would leave
+# it silently untracked, and the mistake surfaces only when someone else clones
+# and the file is not there.
 /*
 !.gitignore
 
@@ -6,6 +13,10 @@
 !subdir/
 !scratch-simulator.cc
 !CMakeLists.txt
+
+# The evaluation harnesses (one per defense branch) and the feature collector
+# they share. olsr_window_features.h MUST stay byte-identical on both branches
+# -- it is what makes the two defenses' datasets comparable. See docs/SCHEMA.md.
 !olsr-trust-eval-mitigation.cc
-!olsr_window_features.h
 !olsr-fpnt-eval-mitigation.cc
+!olsr_window_features.h

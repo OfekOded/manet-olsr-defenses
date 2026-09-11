@@ -31,13 +31,29 @@
 #                             being comparable.
 # =============================================================================
 
-DEFENSE_ID=none
-DEFENSE_NAME="no defense (shared base branch)"
-DEFENSE_BRANCH=master
-PAPER=""
-SCRATCH_TARGET=""
+DEFENSE_ID=fpnt
+DEFENSE_NAME="FPNT-OLSR"
+DEFENSE_BRANCH=fpnt-defense
+PAPER="Tan, Li & Dong -- Trust based routing mechanism for securing OLSR-based MANET, Ad Hoc Networks 30 (2015), pp. 84-98"
+SCRATCH_TARGET=olsr-fpnt-eval-mitigation
+
+# Deliberately empty, and that is worth stating rather than leaving implicit.
+#
+# Unlike the TRUST harness -- whose CLI defaults leave two of three detection
+# mechanisms switched off -- this harness's defaults already reproduce the
+# paper: maliciousThreshold=0.2, uncertaintyBeta=0.6, fadingFactor=0.7,
+# cheatThreshold=2, trustUpdateInterval=5s. OlsrDefenseFpnt follows the rule
+# that any behaviour beyond the paper's text sits behind an attribute whose
+# default reproduces the paper.
+#
+# Two variants exist and are NOT enabled here, because no dataset was generated
+# with them: --redundantMpr (the FPNT-OLSR(R) redundant-MPR-coverage variant of
+# section 5.3) and MonitorTcForwarding (in the paper, but off by default here).
+# See docs/HANDOFF.md, "suggested next steps".
 DEFENSE_FLAGS=""
 
+# As published in docs/DATASETS.md. The canonical and mixed ranges are disjoint
+# so the two are statistically independent.
 BATCH_SEED_STATIC=1
 BATCH_SEED_MOBILE=2000001
 BATCH_SEED_STATIC_MIXED=10000001

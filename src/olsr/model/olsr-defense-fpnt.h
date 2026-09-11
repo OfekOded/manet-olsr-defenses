@@ -1,4 +1,7 @@
 /* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
+/*
+ * SPDX-License-Identifier: GPL-2.0-only
+ */
 #ifndef OLSR_DEFENSE_FPNT_H
 #define OLSR_DEFENSE_FPNT_H
 
@@ -13,6 +16,7 @@ namespace ns3 {
 namespace olsr {
 
 /**
+ * @ingroup olsr
  * \brief FPNT-OLSR trust reasoning mechanism.
  *
  * Implementation of:
