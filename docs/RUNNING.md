@@ -136,8 +136,8 @@ minute.
 | `--detach` | Run in the background (`setsid nohup`), safe to close the terminal |
 
 `batch` runs static then mobile for the **current branch's defense only** — the
-two defenses cannot be built in one working tree, so reproducing everything
-means running it once per branch.
+defenses cannot be built in one working tree, so reproducing everything means
+running it once per branch.
 
 It fails fast: if a batch fails, the next one is not started, because the usual
 cause (a stale build, a full disk) would break it too.
@@ -248,7 +248,7 @@ it dominates the directory's file count and inode usage.
 
 ## Harness flags
 
-Shared by both harnesses:
+Shared by all four harnesses:
 
 | Flag | Default | Meaning |
 |---|---|---|
@@ -286,31 +286,46 @@ TRUST only (`trust-defense`):
 | `--mistrustPermanent` | false | Permanent vs rehabilitatable mistrust |
 | `--mistrustDuration` | 60.0 s | Rehab window when not permanent |
 
-DCFM only (`dcfm-defense`) -- the defense itself exposes only two ns-3
-attributes, and neither is a harness command-line flag:
+**DCFM and Watchdog have no defense-specific command-line flags.** Their
+parameters are set by hardcoded `SetAttribute` calls in each harness's install
+block; to change one, edit that block and rebuild. Both harnesses do accept
+FPNT's flags below, but only so every harness has the same CLI — in DCFM and
+Watchdog those flags are parsed and **never read**.
 
-| Attribute | Default | Meaning |
-|---|---|---|
-| `Enabled` | **false** | Owned by the harness, which flips it per measurement window. Do not force it on -- that breaks the 2x2 design. |
-| `UseFictitiousNodes` | true | Set false to degrade the defense to the paper's C-Rules alone (a built-in ablation). |
+Both install blocks create the defense with `Enabled=false`, and the harness then
+turns it on and off per measurement window. Do not force it on — that breaks the
+2x2 design.
 
-Watchdog only (`watchdog-defense`) -- sixteen attributes, again set on the
-defense object rather than through harness flags. The load-bearing ones:
+DCFM only (`dcfm-defense`) — two attributes on `OlsrDefenseGcop`:
 
-| Attribute | Default | Meaning |
-|---|---|---|
-| `Enabled` | **false** | Owned by the harness, as above |
-| `ForwardTimeout` | 500 ms | How long to wait before calling a forward missing |
-| `PeriodicInterval` | 1 s | Self-scheduled reasoning tick |
-| `WarmupDuration` | 15 s | Grace period before any accusation |
-| `BlacklistThreshold` | 3 | Strikes before blacklisting |
-| `MacFailureThreshold` | 3 | Corroborating MAC failures |
-| `ProbationDuration` | 2 s | Re-check window |
-| `VerifyOnwardHop` | — | Whether to confirm the packet moved on |
+| Attribute | Class default | Harness sets | Meaning |
+|---|---|---|---|
+| `Enabled` | false | false at install, toggled per window | Defense on/off |
+| `UseFictitiousNodes` | true | (not set) | false degrades the defense to the paper's C-Rules alone — a built-in ablation |
 
-Four further attributes (`RtsToDataRatioThreshold`, `MinRtsForHeuristic`,
-`MinSelfReliability`, and one more) are documented `"INERT."` in the source --
-retained so older scripts keep parsing, but removed from the decision path.
+Watchdog only (`watchdog-defense`) — sixteen attributes on `OlsrWatchdogDefense`:
+
+| Attribute | Class default | Harness sets | Meaning |
+|---|---|---|---|
+| `Enabled` | **true** | false at install, toggled per window | Defense on/off |
+| `ForwardTimeout` | 500 ms | 500 ms | Wait before calling a forward missing |
+| `PeriodicInterval` | 1 s | 1 s | Self-scheduled reasoning tick |
+| `WarmupDuration` | 15 s | 15 s | Grace period before any accusation |
+| `BlacklistThreshold` | 3 | 3 | Strikes before blacklisting |
+| `SelfDropsThreshold` | 5 | 5 | Local-drop count that marks this node's own observations unreliable |
+| `MacFailureThreshold` | 3 | 3 | Corroborating MAC failures |
+| `RtsCtsDiscrepancyThreshold` | 1 | (not set) | RTS/CTS mismatch tolerance |
+| `ProbationDuration` | 2 s | 2 s | Re-check window |
+| `MacFailureRateThreshold` | 0.4 | 0.4 | MAC failure rate that counts as evidence |
+| `MinDataObservations` | 2 | 2 | Observations required before judging |
+| `BlacklistDuration` | 30 s | (not set) | How long a blacklisting lasts |
+| `VerifyOnwardHop` | true | (not set) | Confirm the packet actually moved on |
+| `RtsToDataRatioThreshold` | 3.0 | 3.0 | **INERT** |
+| `MinRtsForHeuristic` | 5 | 5 | **INERT** |
+| `MinSelfReliability` | 0.6 | 0.6 | **INERT** |
+
+The three **INERT** attributes are documented as such in the source: heuristics
+removed from the decision path, kept only so older scripts still parse.
 
 FPNT only (`fpnt-defense`):
 
@@ -349,8 +364,17 @@ To run them, reconfigure once:
 ```
 
 The three suites that exercise this module are `routing-olsr-regression`
-(system), `routing-olsr` and `routing-olsr-header` (unit). All three pass on
-both defense branches.
+(system), `routing-olsr` and `routing-olsr-header` (unit). Measured 2026-09-11:
+
+| Branch | `routing-olsr-regression` | `routing-olsr` | `routing-olsr-header` |
+|---|---|---|---|
+| `trust-defense` | PASS | PASS | PASS |
+| `fpnt-defense` | PASS | PASS | PASS |
+| `dcfm-defense` | **CRASH** | PASS | PASS |
+| `watchdog-defense` | **CRASH** | PASS | PASS |
+
+The two crashes are one known line each — see
+[HANDOFF.md](HANDOFF.md#known-issues), issue 0.
 
 This is worth doing after any change to `src/olsr/`. It is how the
 `Config::Connect` fault described in [HANDOFF.md](HANDOFF.md#provenance-of-the-tooling)

@@ -44,11 +44,7 @@ code. One command switches, reconfigures and builds:
 ./tools/olsr-research.sh use trust
 ```
 
-or
-
-```bash
-./tools/olsr-research.sh use fpnt
-```
+The four choices are `trust`, `fpnt`, `dcfm` and `watchdog`.
 
 This takes a few minutes the first time. It refuses to run if you have
 uncommitted changes, so commit or stash first.
@@ -126,6 +122,6 @@ Column-by-column meaning: [SCHEMA.md](SCHEMA.md).
 ## Next
 
 - [RUNNING.md](RUNNING.md) — every flag, and the TRUST default-flags trap
-- [DATASETS.md](DATASETS.md) — the eight batches already generated
+- [DATASETS.md](DATASETS.md) — which batches exist and how to generate the rest
 - [ARCHITECTURE.md](ARCHITECTURE.md) — how the code is organised
 - [HANDOFF.md](HANDOFF.md) — project status and known issues
