@@ -5,9 +5,10 @@ The intent is that nothing here is a surprise later.
 
 ## Where things stand
 
-Both defenses are implemented, instrumented and evaluated. Eight dataset
-batches are complete ([DATASETS.md](DATASETS.md)). The code builds and
-self-tests on both branches.
+All four defenses are implemented and instrumented, and all four branches build
+and pass `--self-test`. TRUST and FPNT are fully evaluated with complete dataset
+batches; DCFM and Watchdog have working, verified harnesses but no full batches
+yet ([DATASETS.md](DATASETS.md)).
 
 | | TRUST-OLSR | FPNT-OLSR | DCFM-OLSR | Watchdog-OLSR |
 |---|---|---|---|---|
@@ -109,15 +110,17 @@ they belong, so `git tag` in a clone lists only tags that mean something here.
 |---|---|
 | `trust-defense-verified-2026-08-18` | TRUST after merging ns-3.47 and the QA round |
 | `trust-defense-paper-complete-2026-08-20` | TRUST implementation complete against Adnane et al. |
-| `handoff-2026-09-11-trust` | the state handed over: TRUST + tooling + docs |
-| `handoff-2026-09-11-fpnt` | the state handed over: FPNT + tooling + docs |
-| `ns-3.47` | upstream release this fork is based on |
-| `v1.0-stable`, `v1.1-stable` | early project milestones, pre-dating both defenses |
+| `handoff-2026-09-11-{trust,fpnt,dcfm,watchdog}` | the state handed over on each defense branch |
+| `restore-2026-09-11-{master,trust,fpnt,dcfm,watchdog}` | restore points on every branch |
 
-`master` is 4 commits ahead of `origin/master` (the project's own base) and
-several hundred behind it (upstream ns-3 has moved on to 3.48+). Rebasing onto a
-newer ns-3 is possible but would invalidate the datasets, which are tied to
-ns-3.47 behaviour.
+Only the tags above are published to `origin`. Older local tags —
+`trust-defense-verified-2026-08-18`, `trust-defense-paper-complete-2026-08-20`,
+`v1.0-stable`, `v1.1-stable` — and the upstream `ns-3.*` release tags were not
+pushed.
+
+The defense branches are based on ns-3.47 and several hundred commits behind
+current upstream ns-3. Rebasing onto a newer ns-3 is possible but would
+invalidate the datasets, which are tied to ns-3.47 behaviour.
 
 ## Known issues
 
@@ -162,8 +165,8 @@ say so in the manifest.
 `src/olsr/model/defense/olsr-repositories.h` are byte-identical, and
 `src/olsr/CMakeLists.txt` installs the `defense/` copy as `ns3/olsr-repositories.h`.
 So the file the model code includes by relative path is **not** the one the test
-suite gets via `ns3/`. Two copies to keep in sync, silently. Not present on
-`fpnt-defense`.
+suite gets via `ns3/`. Two copies to keep in sync, silently. `trust-defense`
+only — the other three branches install `model/olsr-repositories.h` directly.
 
 De-duplicating is safe but touches the public header set, so it was left alone.
 
@@ -192,8 +195,8 @@ See "next steps" below.
 ### 6. `master` is not a clean pre-defense base
 
 It already carries `scratch/olsr-trust-eval-mitigation.cc` and the FPNT trust
-mechanism commit. It is the shared base of the two defense branches, not a
-neutral stock-ns-3 checkout. Its `scratch/olsr_window_features.h` also predates
+mechanism commit. It is the shared base of the defense branches, not a neutral
+stock-ns-3 checkout. Its `scratch/olsr_window_features.h` also predates
 the LISTENER-17 schema, so do not use `master` to generate anything.
 
 ## Suggested next steps
@@ -220,19 +223,25 @@ Roughly in order of value per unit of effort.
 4. **Consider the FPNT-OLSR(R) variant** (`--redundantMpr`). Implemented, never
    evaluated.
 
-5. **Unify the two defenses onto one branch**, if side-by-side comparison within
-   a single run ever becomes important.
+5. **Unify defenses onto fewer branches**, if side-by-side comparison within a
+   single run ever becomes important.
    [ARCHITECTURE.md](ARCHITECTURE.md#why-four-branches) sets out exactly what
-   conflicts: the `olsr-header.h` message-format divergence is mechanical, the
-   strategy interfaces union cleanly, and the only real design decision is the
-   HELLO re-flooding rule. Note that this would break comparability with the
-   existing datasets unless the merged build reproduces both defenses bit-for-bit.
+   conflicts. TRUST/FPNT is the easier pair — the `olsr-header.h` divergence is
+   mechanical and the strategy interfaces union cleanly, leaving only the HELLO
+   re-flooding rule as a real design decision. DCFM/Watchdog conflict in six
+   regions, including opposite responses to a suspected next hop. Any merge breaks
+   comparability with existing datasets unless it reproduces every defense
+   bit-for-bit.
 
 ## Things not to break
 
-- **`scratch/olsr_window_features.h` must stay byte-identical on both defense
-  branches.** It is what makes the two datasets comparable. Change it on both in
-  the same commit, bump `HEADER_VERSION`, and write a new `docs/DATASETS.md` row.
+- **`scratch/olsr_window_features.h` must stay byte-identical on all four defense
+  branches.** It is what makes the four datasets comparable. Change it on all
+  four in the same commit, bump `HEADER_VERSION`, and write a new
+  `docs/DATASETS.md` row.
+- **`tools/` and `docs/` must stay identical across branches.** Edit them on
+  `master` and merge `master` into each defense branch; never edit them on a
+  defense branch directly. `tools/defense.manifest` is the one exception.
 - **Seed ranges in `tools/defense.manifest`** are what let a regenerated batch
   reproduce the original run-for-run. Do not renumber them casually.
 - **The stale-binary guard in `--direct` mode.** It looks like an obstacle; it is

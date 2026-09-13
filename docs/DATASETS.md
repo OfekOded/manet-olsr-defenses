@@ -1,8 +1,10 @@
 # Generated datasets
 
-Datasets are **not stored in git** — the eight batches below are ~198 MB of
-CSV plus ~35 000 per-attempt log files. This page is the manifest: what exists,
-under exactly which configuration, and the command that regenerates it.
+Datasets are **not stored in git** — they run to ~150 MB of CSV plus tens of
+thousands of per-attempt log files. This page is the manifest: what was
+generated, under exactly which configuration, and the command that regenerates
+it. Eight batches were generated for TRUST and FPNT; two superseded TRUST batches
+were later deleted, so six remain.
 
 All eight batches completed (`STATUS: ALL BATCHES DONE`,
 `BOTH MIXED BATCHES DONE`, `TRUST V2 ALL DONE`).
