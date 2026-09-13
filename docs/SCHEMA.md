@@ -2,9 +2,10 @@
 
 The authoritative specification is the 94-line comment block at the top of
 [`scratch/olsr_window_features.h`](../scratch/olsr_window_features.h) (schema
-v6, `HEADER_VERSION 8`). That file is **byte-identical on `trust-defense` and
-`fpnt-defense`**, which is what makes the two defenses' datasets directly
-comparable. This page summarises it; where the two disagree, the header wins.
+v6, `HEADER_VERSION 8`). That file is **byte-identical on all four defense
+branches**, which is what makes the four defenses' datasets directly comparable.
+This page summarises it; where this page and the header disagree, the header
+wins.
 
 ## The defining constraint
 
