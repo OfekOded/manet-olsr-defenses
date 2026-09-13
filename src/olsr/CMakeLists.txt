@@ -23,7 +23,7 @@ build_lib(
     model/defense/olsr-consistency-rules.h
     model/defense/olsr-forward-monitor.h
     model/defense/olsr-provable-identity.h
-    model/defense/olsr-repositories.h
+    model/olsr-repositories.h
     model/defense/olsr-trust-config.h
     model/defense/olsr-trust-state.h
   LIBRARIES_TO_LINK
