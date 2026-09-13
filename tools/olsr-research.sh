@@ -143,6 +143,37 @@ check_binary_fresh() {
 
 tree_is_clean() { [[ -z "$(git -C "$REPO_ROOT" status --porcelain)" ]]; }
 
+# ns-3 publishes every module header as build/include/ns3/<name>.h, a one-line
+# forwarding stub that #includes the source file by absolute path. Configure
+# creates a stub that is missing but does NOT rewrite one that already exists.
+#
+# So when two branches install a header of the same name from different source
+# paths, switching branches leaves the stub pointing at a file that no longer
+# exists, and every harness that includes ns3/olsr-module.h fails to compile.
+# That is exactly what happened on a fresh clone: trust-defense once installed
+# model/defense/olsr-repositories.h, the other three branches install
+# model/olsr-repositories.h, and "use trust" followed by any other defense broke
+# the build.
+#
+# A stub whose target is missing can never be included successfully, so
+# deleting it is always safe; configure then recreates it pointing at the file
+# the current branch actually has.
+prune_dangling_stubs() {
+    local dir="$REPO_ROOT/build/include/ns3" f target n=0
+    [[ -d "$dir" ]] || return 0
+    for f in "$dir"/*.h; do
+        target="$(sed -n '1s/^#include "\(\/.*\)"$/\1/p' "$f")"
+        if [[ -n "$target" && ! -e "$target" ]]; then
+            rm -f "$f"
+            n=$(( n + 1 ))
+        fi
+    done
+    if (( n > 0 )); then
+        info "removed $n stale forwarding header(s) left behind by another branch"
+    fi
+    return 0
+}
+
 # =============================================================================
 # doctor
 # =============================================================================
@@ -272,6 +303,8 @@ cmd_build() {
     info "target : scratch_$SCRATCH_TARGET"
     info "jobs   : $jobs"
     rule
+
+    prune_dangling_stubs
 
     say "configuring (required after every branch switch)"
     ( cd "$REPO_ROOT" && ./ns3 configure --enable-examples ) \
