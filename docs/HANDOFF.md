@@ -159,16 +159,32 @@ behaviour and would make the existing `trust_*_v2` datasets non-comparable with
 anything produced afterwards. If you fix it, regenerate the TRUST batches and
 say so in the manifest.
 
-### 2. `olsr-repositories.h` exists twice on `trust-defense`
+### 2. `olsr-repositories.h` exists twice on `trust-defense` — *fixed 2026-09-13*
 
 `src/olsr/model/olsr-repositories.h` and
-`src/olsr/model/defense/olsr-repositories.h` are byte-identical, and
-`src/olsr/CMakeLists.txt` installs the `defense/` copy as `ns3/olsr-repositories.h`.
-So the file the model code includes by relative path is **not** the one the test
-suite gets via `ns3/`. Two copies to keep in sync, silently. `trust-defense`
-only — the other three branches install `model/olsr-repositories.h` directly.
+`src/olsr/model/defense/olsr-repositories.h` are byte-identical. Nothing includes
+the `defense/` copy directly; it existed only as the source CMake installed as
+`ns3/olsr-repositories.h`.
 
-De-duplicating is safe but touches the public header set, so it was left alone.
+This was listed here as harmless. **It was not.** A verification run on a fresh
+clone from GitHub, following QUICKSTART's order, built `trust-defense` cleanly —
+and then `use fpnt`, `use dcfm` and `use watchdog` all failed to compile:
+
+```
+build/include/ns3/olsr-repositories.h: fatal error:
+  src/olsr/model/defense/olsr-repositories.h: No such file or directory
+```
+
+ns-3 publishes each header as a one-line forwarding stub in
+`build/include/ns3/`, and configure never rewrites a stub that already exists. The
+stub created on `trust-defense` pointed into `defense/`, which the other three
+branches do not have. The original development tree never showed it only because
+its stub had been created from a branch that installs `model/`.
+
+Fixed twice over, neither affecting simulation behaviour: `trust-defense` now
+installs the `model/` copy (identical bytes), and `olsr-research.sh build` deletes
+any forwarding stub whose target no longer exists before it configures. The
+duplicate file itself is still on `trust-defense`, unused; removing it is safe.
 
 ### 3. Parity references are not in this repository
 
