@@ -404,3 +404,4 @@ Turning them off is an explicit act:
 | `--fresh needs confirmation but stdin is not a terminal` | You are detached or piped. Add `--yes` if you really mean to delete the data. |
 | `scratch/X.cc does not exist on this branch` | Wrong branch for that defense. `./tools/olsr-research.sh use <trust\|fpnt\|dcfm\|watchdog>`. |
 | Working tree dirty, refuses to switch | Commit or stash. Switching with a dirty tree is how you silently mix two defenses' code. |
+| `build/include/ns3/<name>.h: fatal error: ... No such file or directory` after switching branch by hand | A stale forwarding header from another branch. `./tools/olsr-research.sh build` removes stale stubs before configuring; `use <defense>` does this for you. |
