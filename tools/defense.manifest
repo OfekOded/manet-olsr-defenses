@@ -47,8 +47,10 @@ SCRATCH_TARGET=olsr-dcfm-eval-mitigation
 # precisely what implements the 2x2 defense-on/off design, so forcing it on
 # from the command line would BREAK the experiment rather than fix it.
 #
-# Do not take this on trust: defense_params.txt in every output directory
-# records the parameters that were actually in effect for that run.
+# Do not take this on trust. Every per-attempt log in logs/ prints
+# "Defense ACTIVATED" / "Defense DEACTIVATED" at each window transition, and
+# windows_labels.csv records defense_enabled for every window. (For this
+# defense defense_params.txt records only the variant and version numbers.)
 #
 # NAMING: the class and its files say GCOP (src/olsr/model/olsr-defense-gcop.*,
 # class OlsrDefenseGcop, TypeId ns3::olsr::OlsrDefenseGcop) while everything
