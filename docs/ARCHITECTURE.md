@@ -1,7 +1,7 @@
 # Architecture
 
-How this fork is put together: the attacker, the defense abstraction, the two
-defense implementations, and why they cannot share a branch.
+How this fork is put together: the attacker, the defense abstraction, the four
+defense implementations, and why each needs its own branch.
 
 ## The experiment
 
@@ -26,8 +26,10 @@ dataset (see [SCHEMA.md](SCHEMA.md)) plus per-run detection metrics.
 
 The attacker lives in `src/olsr/model/olsr-routing-protocol.cc` behind twenty
 `// SECURITY RESEARCH EXTENSION:` banners — grep for that string to find every
-place stock OLSR was touched. Attacker behaviour is identical on both defense
-branches, which is what makes the two defenses comparable.
+place stock OLSR was touched. Attacker behaviour is identical on all four
+defense branches — `BuildSpoofTargets` and the rest of the attack code are
+byte-identical across every routing-protocol variant — which is what makes the
+four defenses comparable.
 
 Key attacker entry points:
 
@@ -178,16 +180,19 @@ src/olsr/model/olsr-watchdog-defense.{h,cc}   class OlsrWatchdogDefense, ~1590 l
 **This is not the classic Marti et al. watchdog**, and the difference matters
 when reading results. It is *cross-layer*: forwarding observations are
 corroborated with RTS/CTS evidence and MAC-layer failures, per node, with no
-inter-node cooperation messages. Sixteen attributes; four of them the source
+inter-node cooperation messages. Sixteen attributes; three of them the source
 itself marks `"INERT."` — heuristics removed from the decision path but kept so
 older scripts still parse.
 
 Its routing-protocol variant is the odd one out: it contains **no
 promiscuous-monitoring code at all**. That looks like something went missing
 until you check where the evidence comes from. `OlsrWatchdogDefense` schedules
-its own periodic check (`m_periodicEvent`) and draws on the forwarding and
-MAC-failure hooks. So the empty `HandleDefenseTimer()` in its routing protocol
-is correct here.
+its own periodic check (`m_periodicEvent`), and **attaches its own PHY sniffer**
+in `Setup()` — `MonitorSnifferRx` for overheard forwards and RTS/CTS, `PhyRxDrop`
+for local reception failures — alongside the forwarding and MAC-failure hooks
+the routing protocol still calls. The monitoring did not go missing; it moved
+into the defense object. So the empty `HandleDefenseTimer()` in its routing
+protocol is correct here.
 
 DCFM is the mirror image: `OlsrDefenseGcop` does *not* self-schedule, and its
 routing-protocol variant supplies the full periodic timer body. Each pairing is
@@ -195,9 +200,9 @@ internally consistent; neither is a bug.
 
 ## Why four branches
 
-The two defenses are not merely different classes. They make **incompatible
-edits to the same core OLSR files**, so they cannot be built into one binary as
-things stand.
+The defenses are not merely different classes. They make **incompatible edits
+to the same core OLSR files**, so they cannot be built into one binary as things
+stand. TRUST and FPNT conflict in three ways:
 
 **1. `olsr-header.h` — the message format.** TRUST adds a fifth OLSR message
 type and a payload for it:
@@ -221,14 +226,14 @@ is hand-resolvable, not a redesign.
 
 **2. HELLO forwarding — a genuine behavioural conflict.** TRUST permits HELLO
 re-flooding (gated on hop count) so §7 alerts can propagate. FPNT restores RFC
-3626's rule that a HELLO is never forwarded. Both branches would need that gate
+3626's rule that a HELLO is never forwarded. A merged build would need that gate
 made conditional on which strategy is loaded.
 
 **3. The strategy interface diverged, but only additively.** FPNT added
 `GetEvaluationVectors()`, `OnRecvEvaluationVectors()`, `GetNodeTrust()`,
 `IsTrustRoutingEnabled()` and a 4-argument `OnDataPacketForwarded` overload;
 TRUST added `GetPartialMistrusted()`, `OnHelloGenerated()` and `OnRecvProof()`.
-Every one of those is non-pure with a safe default, so unioning the two
+Every one of those is non-pure with a safe default, so unioning those two
 interfaces would compile and neither defense would need changing.
 
 ### DCFM and Watchdog conflict too
@@ -281,9 +286,16 @@ Verified end to end — all four compiled binaries emit the same 22-column heade
 from `--emit-header`. If you change the collector, change it on all four
 branches in the same commit and regenerate everything.
 
-Both harnesses accept `--self-test` (a cycle-counter self-check that must print
+All four harnesses accept `--self-test` (a schema self-check that must print
 `ALL PASS`; the tooling runs it after every build) and `--emit-header` (prints
 the CSV headers and exits, which is how the runner detects schema drift).
+
+The DCFM and Watchdog harnesses also accept FPNT's flags (`--maliciousThreshold`,
+`--fadingFactor`, `--redundantMpr`, …). They are **parsed and never read** — each
+appears exactly once, on its `AddValue` line — and are kept on purpose so the
+command-line interface is identical across harnesses. Do not expect them to tune
+DCFM or Watchdog. Those two defenses take their parameters from hardcoded
+`SetAttribute` calls in the harness's install block instead.
 
 The top of each harness carries a long changelog of audit ticket IDs
 (`LEAK-001`, `OBS-004`, `WIN-003`, `SL-2`, `DIR-001`, …). It is history, not
