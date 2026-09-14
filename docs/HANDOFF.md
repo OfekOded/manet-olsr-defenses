@@ -3,21 +3,29 @@
 Written when the original authors finished, for whoever continues the work.
 The intent is that nothing here is a surprise later.
 
+This repository is one of three. The report that records the whole project is
+[`OfekOded/Documentation`](https://github.com/OfekOded/Documentation), and the
+learning code, the committed datasets and every ML result are in
+[`hananelk26/ML-for-NS3`](https://github.com/hananelk26/ML-for-NS3). This file
+covers the simulator side only.
+
 ## Where things stand
 
 All four defenses are implemented and instrumented, and all four branches build
 and pass `--self-test`. TRUST and FPNT are fully evaluated with complete dataset
-batches; DCFM and Watchdog have working, verified harnesses but no full batches
-yet ([DATASETS.md](DATASETS.md)).
+batches generated from their branches here. The DCFM and Watchdog datasets the
+report uses were generated in the partner's original repository before the
+import; their harnesses on these branches are verified, but no full batch has
+been generated from them yet ([DATASETS.md](DATASETS.md)).
 
 | | TRUST-OLSR | FPNT-OLSR | DCFM-OLSR | Watchdog-OLSR |
 |---|---|---|---|---|
-| Paper | Adnane et al., 2013 | Tan et al., 2015 | Schweitzer et al., 2024 | Baiad et al., 2014 |
-| Author | Oded Ofek | Oded Ofek | Hananel Kahana | Hananel Kahana |
+| Paper | Adnane et al., 2013 | Tan et al., 2015 | Schweitzer et al., 2025 | Baiad et al., 2014 |
+| Author | Oded Ofek | Oded Ofek | Hananel Kadron | Hananel Kadron |
 | Branch | `trust-defense` | `fpnt-defense` | `dcfm-defense` | `watchdog-defense` |
 | Implementation | complete | complete | complete | complete |
 | Builds + self-test | ✅ | ✅ | ✅ | ✅ |
-| Canonical datasets | `trust_*_v2` | `fpnt_static`, `fpnt_mobile` | **none yet** | **none yet** |
+| LISTENER-17 datasets | `trust_*_v2` | `fpnt_static`, `fpnt_mobile` | `Pilot2k`, from the partner's repository | from the partner's repository |
 | Randomized-window datasets | **missing** | `fpnt_*_mixed` | **missing** | **missing** |
 
 DCFM and Watchdog were imported from the partner's repository on 2026-09-11 —
@@ -25,10 +33,18 @@ see [PARTNER-IMPORT.md](PARTNER-IMPORT.md) for exactly what came from where.
 
 ## Verified at handoff
 
-All four branches, 2026-09-11. Every item below was run, not assumed.
+Every item below was run, not assumed.
 
-**Per branch:** `doctor` reports **0 failures**; `--self-test` prints
-`ALL PASS`; the harness builds from a clean `use <defense>`.
+**2026-09-11, on all four branches.** `doctor` reports **0 failures**;
+`--self-test` prints `ALL PASS`; the harness builds from a clean
+`use <defense>`.
+
+**2026-09-13, from a fresh clone of GitHub.** Building every defense in
+QUICKSTART's order exposed a stale forwarding-header problem that the
+development tree had masked (known issue 4, now fixed). After the fix, the same
+fresh clone built all four from zero, `doctor` reported 0 failures,
+`--self-test` printed `ALL PASS`, and `smoke` produced a validated batch on each
+branch with an identical feature header.
 
 **End-to-end generation sweep — 20 accepted runs requested on each defense:**
 
@@ -68,7 +84,7 @@ pipeline runs end to end.
 
 **ns-3 test suites:** `routing-olsr` and `routing-olsr-header` pass on all four
 branches. `routing-olsr-regression` passes on `trust-defense` and `fpnt-defense`
-and **crashes on `dcfm-defense` and `watchdog-defense`** — see known issue 0.
+and **crashes on `dcfm-defense` and `watchdog-defense`** — see known issue 1.
 
 Two results from that pass are worth recording, because both were latent
 problems that would have surfaced for you rather than for us.
@@ -96,27 +112,40 @@ upstream   https://gitlab.com/nsnam/ns-3-dev.git                 ns-3, for pulli
 hananel    https://github.com/hananelk26/manet-olsr-project.git  the partner's original repo
 ```
 
-`hananel` is kept configured so the provenance of DCFM and Watchdog stays
-inspectable — `git log hananel/master`, `git show hananel/master:<path>`. See
+A fresh clone has only `origin`. Add the other two if you need them:
+
+```bash
+git remote add upstream https://gitlab.com/nsnam/ns-3-dev.git
+```
+
+```bash
+git remote add hananel https://github.com/hananelk26/manet-olsr-project.git
+```
+
+You do not need `hananel` to see the partner's code: its final state is kept in
+this repository as the tag `manet-olsr-project-2026-09-03` (below). See
 [PARTNER-IMPORT.md](PARTNER-IMPORT.md).
 
-Only this project's five branches and nine `handoff-*` / `restore-*` tags were
-pushed to `origin`. The ~100 upstream `ns-3.*` tags stay on `upstream` where
-they belong, so `git tag` in a clone lists only tags that mean something here.
+Only this project's five branches and the tags below were pushed to `origin`.
+The ~100 upstream `ns-3.*` tags stay on `upstream` where they belong, so
+`git tag` in a clone lists only tags that mean something here.
 
 ## Tags
 
+These are the tags published to `origin`:
+
 | Tag | Meaning |
 |---|---|
-| `trust-defense-verified-2026-08-18` | TRUST after merging ns-3.47 and the QA round |
-| `trust-defense-paper-complete-2026-08-20` | TRUST implementation complete against Adnane et al. |
-| `handoff-2026-09-11-{trust,fpnt,dcfm,watchdog}` | the state handed over on each defense branch |
-| `restore-2026-09-11-{master,trust,fpnt,dcfm,watchdog}` | restore points on every branch |
+| `handoff-2026-09-14-{master,trust,fpnt,dcfm,watchdog}` | **the handed-over state** of each branch |
+| `handoff-2026-09-11-{trust,fpnt,dcfm,watchdog}` | the state after the fresh-clone verification of 2026-09-13 (named for the handoff date that was planned) |
+| `restore-2026-09-11-{master,trust,fpnt,dcfm,watchdog}` | restore points on every branch, taken on 2026-09-11 |
+| `manet-olsr-project-2026-09-03` | the final state of the partner's original repository (`1f55b70b8`), kept so that the report's links to files that exist only there still resolve |
 
-Only the tags above are published to `origin`. Older local tags —
-`trust-defense-verified-2026-08-18`, `trust-defense-paper-complete-2026-08-20`,
-`v1.0-stable`, `v1.1-stable` — and the upstream `ns-3.*` release tags were not
-pushed.
+Older tags exist only in the original development tree and were not pushed:
+`trust-defense-verified-2026-08-18` (TRUST after merging ns-3.47),
+`trust-defense-paper-complete-2026-08-20` (TRUST complete against Adnane et al.),
+`pre-3.47-backup` (the partner's tree before it moved to 3.47), `v1.0-stable`,
+`v1.1-stable`, and the upstream `ns-3.*` release tags.
 
 The defense branches are based on ns-3.47 and several hundred commits behind
 current upstream ns-3. Rebasing onto a newer ns-3 is possible but would
@@ -124,24 +153,34 @@ invalidate the datasets, which are tied to ns-3.47 behaviour.
 
 ## Known issues
 
-### 0. Two issues introduced by the four-defense merge
-
-**`dcfm-defense` and `watchdog-defense` crash `routing-olsr-regression`.** Both
-carry `Config::Connect` where `Config::ConnectFailSafe` is needed — the same
-fault `trust-defense` had and that was fixed there. The partner's code was
-imported verbatim by decision, so it was left in place. One line in each file;
-the fix is visible in `trust-defense`'s history if you want it.
-
-**`master` is on a different ns-3 release than the four defense branches.** It
-is `3-dev`; all four defense branches are `3.47`. `master` also still carries the
-pre-LISTENER-17 feature collector and the old TRUST harness. It works fine as the
-home for shared tooling and docs, and `doctor` refuses to generate data there,
-but the name invites the mistake. Either merge `ns-3.47` into it or rename it to
-something like `shared-base`.
-
 Listed honestly, in rough order of how likely they are to cost you time.
 
-### 1. TRUST's defense timer ignores its own `CheckInterval`
+### 1. `dcfm-defense` and `watchdog-defense` crash `routing-olsr-regression`
+
+Both carry `Config::Connect` where `Config::ConnectFailSafe` is needed — the
+same fault `trust-defense` had and that was fixed there (see "Verified at
+handoff"). The partner's code was imported verbatim by decision, so it was left
+in place. One line in each `olsr-routing-protocol.cc` (`dcfm-defense` line 541,
+`watchdog-defense` line 526); the fix is visible in `trust-defense`'s history if
+you want it. It is confined to the test suite: the 20-run generation sweeps
+above ran on both branches with zero errors.
+
+### 2. `master` is not a base to build experiments on
+
+`master` is ns-3 `3-dev`; all four defense branches are `3.47`. It is the home
+of the shared tooling and documentation, but it still carries an early TRUST
+defense (`src/olsr/model/olsr-trust-defense.*` and `model/defense/`), its
+harness at `HARNESS_VERSION 2.4.0` / `HEADER_VERSION 4`, and the pre-LISTENER-17
+`scratch/olsr_window_features.h`. It is not a neutral stock-ns-3 checkout either:
+it is the common ancestor the defense branches grew from.
+
+`doctor` refuses to generate data there, and `use <defense>` moves you off it.
+The name still invites the mistake. If that matters, either merge `ns-3.47` into
+it and strip the old defense — carefully, because `master` is merged *into* every
+defense branch and a deletion there would propagate — or rename it to something
+like `shared-base`.
+
+### 3. TRUST's defense timer ignores its own `CheckInterval`
 
 `olsr-routing-protocol.cc` on `trust-defense` schedules the defense timer with a
 hardcoded `Seconds(1.0)`:
@@ -159,7 +198,7 @@ behaviour and would make the existing `trust_*_v2` datasets non-comparable with
 anything produced afterwards. If you fix it, regenerate the TRUST batches and
 say so in the manifest.
 
-### 2. `olsr-repositories.h` exists twice on `trust-defense` — *fixed 2026-09-13*
+### 4. `olsr-repositories.h` exists twice on `trust-defense` — *fixed 2026-09-13*
 
 `src/olsr/model/olsr-repositories.h` and
 `src/olsr/model/defense/olsr-repositories.h` are byte-identical. Nothing includes
@@ -185,41 +224,36 @@ Fixed twice over, neither affecting simulation behaviour: `trust-defense` now
 installs the `model/` copy (identical bytes), and `olsr-research.sh build` deletes
 any forwarding stub whose target no longer exists before it configures. The
 duplicate file itself is still on `trust-defense`, unused; removing it is safe.
+`master` still installs the `defense/` copy, which the stub pruning covers.
 
-### 3. Parity references are not in this repository
+### 5. Parity references are not in this repository
 
 [SCHEMA.md](SCHEMA.md) documents the feature collector as a deliberate
 re-implementation of `iolsr-tests-corrected.cc`, with feature 8 defined by
-`arm_spec.py`. **Neither file is in this repo.** Parity therefore cannot be
-re-verified from here alone. If you can obtain them, commit them under
-`docs/reference/` — they are the only external dependency of the schema.
+`arm_spec.py`. **Neither file is in this repository or in the ML repository.**
+Both were supplied by the supervisor (report Step 41), so parity can only be
+re-verified against those copies. Commit them under `docs/reference/` — they are
+the only external dependency of the schema.
 
-### 4. `blackhole-animation.xml` is committed
-
-135 KB of generated NetAnim output, at the repository root, on all three
-branches since the initial commit. Harmless but wrong: it is output, not source.
-Removing it from the tip is easy; removing it from history is a rewrite and was
-not done.
-
-### 5. No TRUST mixed-window batches
+### 6. No TRUST mixed-window batches
 
 All four canonical batches ran with `random_window_order = 0`, which perfectly
 confounds measurement-window slot position with scenario. The FPNT `_mixed`
 batches were added to quantify that effect; the TRUST equivalent was never run.
 See "next steps" below.
 
-### 6. `master` is not a clean pre-defense base
+### 7. `.github/workflows/per_commit.yml` is upstream ns-3 CI
 
-It already carries `scratch/olsr-trust-eval-mitigation.cc` and the FPNT trust
-mechanism commit. It is the shared base of the defense branches, not a neutral
-stock-ns-3 checkout. Its `scratch/olsr_window_features.h` also predates
-the LISTENER-17 schema, so do not use `master` to generate anything.
+It came with the ns-3 tree and runs a full configure, build and `test.py` on
+every push. GitHub Actions has not run it for this repository. If Actions is
+ever enabled, expect long runs and a failure on `dcfm-defense` and
+`watchdog-defense` from issue 1 — disable the workflow or fix issue 1 first.
 
 ## Suggested next steps
 
 Roughly in order of value per unit of effort.
 
-1. **Run the TRUST mixed-window batches** to close the asymmetry in issue 5.
+1. **Run the TRUST mixed-window batches** to close the asymmetry in issue 6.
    Two commands, no code changes:
    ```bash
    ./tools/olsr-research.sh use trust
@@ -228,18 +262,22 @@ Roughly in order of value per unit of effort.
    ./tools/olsr-research.sh batch -n 2000 -j 12 --mixed --detach
    ```
 
-2. **Train and report the detection models.** The dataset is the point of the
-   project and is complete; nothing in this repository consumes it yet. There is
-   no analysis code here at all — that work lives outside the repo, and adding it
-   under `analysis/` would make the pipeline end-to-end reproducible.
+2. **Learn from the TRUST full-configuration batches.** `trust_static_v2` and
+   `trust_mobile_v2` are committed to the ML repository as the arm
+   `trust17full`, and the pipeline there is ready to run on them — see its
+   `HANDOFF.md` §6.
 
-3. **Decide about `MonitorTcForwarding`** on FPNT. It is in the paper but
+3. **Generate DCFM and Watchdog batches from these branches**, so all four
+   defenses have data produced by this repository, at the reserved seed ranges
+   ([DATASETS.md](DATASETS.md#what-is-missing)).
+
+4. **Decide about `MonitorTcForwarding`** on FPNT. It is in the paper but
    defaults to off here. Whether turning it on changes the results is unmeasured.
 
-4. **Consider the FPNT-OLSR(R) variant** (`--redundantMpr`). Implemented, never
+5. **Consider the FPNT-OLSR(R) variant** (`--redundantMpr`). Implemented, never
    evaluated.
 
-5. **Unify defenses onto fewer branches**, if side-by-side comparison within a
+6. **Unify defenses onto fewer branches**, if side-by-side comparison within a
    single run ever becomes important.
    [ARCHITECTURE.md](ARCHITECTURE.md#why-four-branches) sets out exactly what
    conflicts. TRUST/FPNT is the easier pair — the `olsr-header.h` divergence is
@@ -255,9 +293,9 @@ Roughly in order of value per unit of effort.
   branches.** It is what makes the four datasets comparable. Change it on all
   four in the same commit, bump `HEADER_VERSION`, and write a new
   `docs/DATASETS.md` row.
-- **`tools/` and `docs/` must stay identical across branches.** Edit them on
-  `master` and merge `master` into each defense branch; never edit them on a
-  defense branch directly. `tools/defense.manifest` is the one exception.
+- **`tools/`, `docs/` and `README.md` must stay identical across branches.** Edit
+  them on `master` and merge `master` into each defense branch; never edit them
+  on a defense branch directly. `tools/defense.manifest` is the one exception.
 - **Seed ranges in `tools/defense.manifest`** are what let a regenerated batch
   reproduce the original run-for-run. Do not renumber them casually.
 - **The stale-binary guard in `--direct` mode.** It looks like an obstacle; it is
@@ -279,9 +317,7 @@ generated any of the shipped data.
 Changes made during consolidation, all in `tools/run_simulations.sh`:
 
 - the default harness now comes from `tools/defense.manifest` instead of being
-  hardcoded to FPNT — which was wrong on two of the three branches;
-- `--defense watchdog` and `--defense dcfm` were removed; no such harness was
-  ever written, so those selectors could only fail;
+  hardcoded to FPNT — which was wrong on every branch but `fpnt-defense`;
 - a clear error when the requested harness does not exist on the current branch;
 - `--fresh` no longer blocks on an interactive prompt when stdin is not a
   terminal — it used to hang or silently abort under `nohup`. Use `--yes`;
@@ -289,6 +325,9 @@ Changes made during consolidation, all in `tools/run_simulations.sh`:
   broke on any path containing a space;
 - `runner.config` now records the branch, the commit and whether `--direct` was
   used, and every batch gets a `defense_flags.txt` provenance sidecar.
+
+`--defense` accepts `trust`, `fpnt`, `dcfm` and `watchdog`; each resolves to that
+defense's harness and fails clearly on a branch that does not carry it.
 
 None of this changes simulation behaviour; the numbers a run produces are
 unaffected.
