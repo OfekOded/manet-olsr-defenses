@@ -175,8 +175,10 @@ mistrusted; the routing protocol decides what to do about the answer. The
 default, ``OlsrDefenseNull``, answers "nobody", leaving RFC 3626 behaviour
 intact.
 
-Two implementations exist, on separate git branches because they make
-incompatible changes to the OLSR message format:
+Four implementations exist, one per git branch, because they make incompatible
+changes to the core OLSR files. TRUST and FPNT are described here; DCFM
+(``dcfm-defense``) and Watchdog (``watchdog-defense``) are described in
+``docs/ARCHITECTURE.md``:
 
 * ``OlsrTrustDefense`` (branch ``trust-defense``) -- Adnane, Bidan & de Sousa,
   *Trust-based security for the OLSR routing protocol*, Computer Communications
