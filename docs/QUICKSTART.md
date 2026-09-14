@@ -12,8 +12,14 @@ git clone https://github.com/OfekOded/manet-olsr-defenses.git
 cd manet-olsr-defenses
 ```
 
-The clone lands on `master` — shared tooling and documentation, no defense. Do
-not generate data from `master`; `use` (step 1) moves you to a defense branch.
+The clone lands on `master` — shared tooling and documentation, not a defense
+branch. Do not generate data from `master`; `use` (step 1) moves you to a defense
+branch.
+
+This repository produces the data. The learning code and the committed datasets
+are in [`hananelk26/ML-for-NS3`](https://github.com/hananelk26/ML-for-NS3), and
+the project report is in
+[`OfekOded/Documentation`](https://github.com/OfekOded/Documentation).
 
 ## 0b. Prerequisites
 

@@ -1,9 +1,20 @@
 # Where DCFM and Watchdog came from
 
-Two of the four defenses were implemented by **Hananel Kahana** in a separate
+Two of the four defenses were implemented by **Hananel Kadron** in a separate
 repository, [`github.com/hananelk26/manet-olsr-project`](https://github.com/hananelk26/manet-olsr-project),
 and imported here on 2026-09-11. This page records exactly what was taken, from
 where, and what was left behind.
+
+That repository's final state (`1f55b70b8`, 2026-09-03) is also kept here, as the
+tag `manet-olsr-project-2026-09-03`, so everything below — including what was
+left behind — stays reachable from this repository alone:
+
+```bash
+git fetch origin tag manet-olsr-project-2026-09-03
+```
+
+The project report links to files in that tag wherever it describes code that
+exists only in the partner's tree.
 
 ## How his repository worked
 
@@ -27,15 +38,16 @@ two-file delta on an otherwise fixed base.
 
 ## What was imported
 
-His repository is configured as a git remote, so his authorship and full history
-stay inspectable:
+His authorship and full history stay inspectable through the tag, or through his
+repository added as a remote named `hananel` (see
+[HANDOFF.md](HANDOFF.md#remotes)):
 
 ```bash
-git log hananel/master
+git log manet-olsr-project-2026-09-03
 ```
 
 ```bash
-git show hananel/master:src/olsr/model/olsr-defense-gcop.h
+git show manet-olsr-project-2026-09-03:src/olsr/model/olsr-defense-gcop.h
 ```
 
 | Branch | File | Source revision |
@@ -68,7 +80,7 @@ descend from the same upstream ns-3 commits and share nearly all objects.
 
 ## Why the import was straightforward
 
-Three things had already converged independently, which is what made a merge
+Four things had already converged independently, which is what made a merge
 possible at all rather than a rewrite:
 
 - **`scratch/olsr_window_features.h` is byte-identical** between his tree and
@@ -94,9 +106,11 @@ user-facing says **DCFM**: the branch, the manifest, the harness
 every output directory.
 
 They are one defense. GCOP (the depth-2 BFS fictitious-node placement,
-Algorithm 1 of the paper) is the mechanism at its core; DCFM is the name of the
-overall approach. Nothing was renamed, because renaming the class would change
-its TypeId string and break his harness.
+Algorithm 1 of the paper) gave the class its name; DCFM is the name of the
+overall approach. The live fictitious-node decision is in fact GCOHP alone,
+matching the supervisor's reference implementation — see
+[ARCHITECTURE.md](ARCHITECTURE.md#dcfm-olsr-dcfm-defense). Nothing was renamed,
+because renaming the class would change its TypeId string and break his harness.
 
 ## Per-branch trimming
 
@@ -109,5 +123,6 @@ DCFM harness is a changelog comment).
 
 A side effect worth knowing: on these two branches `src/olsr/model/defense/` is
 gone, so CMake installs `model/olsr-repositories.h` — the copy the code actually
-includes — instead of the duplicate under `defense/` that `trust-defense` still
-has. See [HANDOFF.md](HANDOFF.md#known-issues).
+includes. `trust-defense` installs the same copy since 2026-09-13, and `master`
+still installs the duplicate under `defense/`. See
+[HANDOFF.md](HANDOFF.md#known-issues), issue 4.
