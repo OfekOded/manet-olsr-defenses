@@ -14,8 +14,23 @@ so their results are directly comparable.
 |---|---|---|---|---|
 | 1 | **TRUST-OLSR** | Adnane, Bidan & de Sousa — *Trust-based security for the OLSR routing protocol*, Computer Communications 36 (2013) | `trust-defense` | Oded Ofek |
 | 2 | **FPNT-OLSR** | Tan, Li & Dong — *Trust based routing mechanism for securing OLSR-based MANET*, Ad Hoc Networks 30 (2015), pp. 84–98 | `fpnt-defense` | Oded Ofek |
-| 3 | **DCFM-OLSR** | Schweitzer et al. — *Achieving MANET protection without the use of superfluous fictitious nodes*, Computer Communications (2024) | `dcfm-defense` | Hananel Kahana |
-| 4 | **Watchdog-OLSR** | Baiad, Otrok, Muhaidat & Bentahar — *Cooperative Cross Layer Detection for Blackhole Attack in VANET-OLSR*, IEEE IWCMC (2014) | `watchdog-defense` | Hananel Kahana |
+| 3 | **DCFM-OLSR** | Schweitzer, Cohen, Hirst, Dvir & Stulman — *Achieving MANET protection without the use of superfluous fictitious nodes*, Computer Communications 229 (2025), 107978 | `dcfm-defense` | Hananel Kadron |
+| 4 | **Watchdog-OLSR** | Baiad, Otrok, Muhaidat & Bentahar — *Cooperative Cross Layer Detection for Blackhole Attack in VANET-OLSR*, IEEE IWCMC (2014); journal extension in Vehicular Communications 5 (2016) | `watchdog-defense` | Hananel Kadron |
+
+---
+
+## The three repositories
+
+This project is split across three public repositories. Each one's README carries this same table.
+
+| Repository | What it holds | Start with |
+|---|---|---|
+| [**OfekOded/Documentation**](https://github.com/OfekOded/Documentation) | The project report — 50 chronological steps, from the kick-off meeting to the handover — and its build system | [`HANDOFF.md`](https://github.com/OfekOded/Documentation/blob/main/HANDOFF.md) |
+| [**OfekOded/manet-olsr-defenses**](https://github.com/OfekOded/manet-olsr-defenses) | The ns-3.47 code: the black-hole attacker, the four defenses (one branch each), the simulation harnesses and the dataset generator | [`docs/QUICKSTART.md`](https://github.com/OfekOded/manet-olsr-defenses/blob/master/docs/QUICKSTART.md) |
+| [**hananelk26/ML-for-NS3**](https://github.com/hananelk26/ML-for-NS3) | The learning pipelines, the committed datasets, and every result the report quotes | [`README.md` §8 — the first run](https://github.com/hananelk26/ML-for-NS3#8-how-to-run-it) |
+
+This repository is the middle row: it produces the data. Everything that learns from it is
+in the ML repository, and the report records what was found and how.
 
 ---
 
@@ -126,9 +141,9 @@ ns-3.47 merge ──●───────────┼──●── trust
                             └──●── watchdog-defense   Watchdog-OLSR
 ```
 
-- **`master`** — shared base: the attacker model, the tooling and this
-  documentation. No defense harness, and **not a branch to generate data from**
-  (see the warning below).
+- **`master`** — shared base: the tooling and this documentation. It still
+  carries an early TRUST defense and its pre-LISTENER-17 harness, and is **not a
+  branch to generate data from** (see the warning below).
 - **`trust-defense`** — adds `src/olsr/model/olsr-trust-defense.*` and the
   `src/olsr/model/defense/` module set.
 - **`fpnt-defense`** — adds `src/olsr/model/olsr-defense-fpnt.*`.
@@ -149,8 +164,9 @@ per-branch, or that invariant breaks.
 
 > **`master` is on a different ns-3 release than the four defense branches.**
 > It is ns-3 `3-dev`; the defense branches are all `3.47`, which is what the code
-> was written and measured against. `master` also still carries the obsolete
-> pre-LISTENER-17 feature collector. It is fine as the home for shared tooling
+> was written and measured against. `master` also still carries an early TRUST
+> defense, its harness (`HARNESS_VERSION 2.4.0`) and the obsolete pre-LISTENER-17
+> feature collector. It is fine as the home for shared tooling
 > and docs, and `doctor` refuses to generate data there, but do not build
 > experiments on it. See [docs/HANDOFF.md](docs/HANDOFF.md#known-issues).
 
@@ -170,15 +186,21 @@ scratch/
 src/olsr/                 the protocol, the attacker, and this branch's defense
 ```
 
-Generated datasets are **not** in git — they run to hundreds of megabytes. See
-[docs/DATASETS.md](docs/DATASETS.md) for what exists and how to regenerate it.
+Generated datasets are **not** in this repository. Their inputs are committed to
+[`hananelk26/ML-for-NS3`](https://github.com/hananelk26/ML-for-NS3), under
+`defense_ml/defense_ml_project/dataset_final/`;
+[docs/DATASETS.md](docs/DATASETS.md) says which batch is where and how to
+regenerate each one.
 
 ## Status
 
 All four defenses are implemented and build cleanly. TRUST and FPNT have full
-datasets; DCFM and Watchdog have working harnesses but no full batches generated
-yet — [docs/DATASETS.md](docs/DATASETS.md#what-is-missing) has the commands and
-the reserved seed ranges.
+batches generated from their branches here. The DCFM and Watchdog LISTENER-17
+data the report uses was generated in the partner's original repository, before
+the import; their harnesses here are verified, and full batches from these
+branches have not been generated —
+[docs/DATASETS.md](docs/DATASETS.md#what-is-missing) has the commands and the
+reserved seed ranges.
 
 Known issues, including two that will bite on day one, are listed honestly in
 [docs/HANDOFF.md](docs/HANDOFF.md#known-issues). Read that before drawing
@@ -192,7 +214,8 @@ checks all of it and names whatever is missing.
 
 ## Credits
 
-Final project by **Oded Ofek** (TRUST-OLSR, FPNT-OLSR) and **Hananel Kahana**
-(DCFM-OLSR, Watchdog-OLSR). Built on [ns-3](https://www.nsnam.org/) 3.47; the
+Final project at the Jerusalem College of Technology by **Oded Ofek**
+(TRUST-OLSR, FPNT-OLSR) and **Hananel Kadron** (DCFM-OLSR, Watchdog-OLSR),
+supervised by Nadav Schweitzer and Dror Mughaz. Built on [ns-3](https://www.nsnam.org/) 3.47; the
 OLSR module derives from the implementation by Francisco J. Ros and
 Gustavo J. A. M. Carneiro. Licensed GPL-2.0-only, as ns-3 is.

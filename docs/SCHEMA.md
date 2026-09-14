@@ -1,9 +1,12 @@
 # The LISTENER-17 dataset schema
 
 The authoritative specification is the 94-line comment block at the top of
-[`scratch/olsr_window_features.h`](../scratch/olsr_window_features.h) (schema
-v6, `HEADER_VERSION 8`). That file is **byte-identical on all four defense
-branches**, which is what makes the four defenses' datasets directly comparable.
+`scratch/olsr_window_features.h` on any defense branch — for example
+[on `fpnt-defense`](https://github.com/OfekOded/manet-olsr-defenses/blob/fpnt-defense/scratch/olsr_window_features.h)
+(collector schema v6; the harnesses stamp it `HEADER_VERSION 8`). That file is
+**byte-identical on all four defense branches**, which is what makes the four
+defenses' datasets directly comparable. `master` carries an older collector
+without the specification block.
 This page summarises it; where this page and the header disagree, the header
 wins.
 

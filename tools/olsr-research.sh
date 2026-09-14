@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# olsr-research.sh -- single entry point for the OLSR trust-defense research.
+# olsr-research.sh -- single entry point for the OLSR defense research.
 #
 # This repository evaluates four published defenses against a blackhole /
 # link-spoofing attacker in OLSR. Each defense compiles DIFFERENT src/olsr
@@ -8,7 +8,7 @@
 #
 #     trust-defense     TRUST-OLSR     (Adnane, Bidan & de Sousa, 2013)
 #     fpnt-defense      FPNT-OLSR      (Tan, Li & Dong, 2015)
-#     dcfm-defense      DCFM-OLSR      (Schweitzer et al., 2024)
+#     dcfm-defense      DCFM-OLSR      (Schweitzer et al., 2025)
 #     watchdog-defense  Watchdog-OLSR  (Baiad et al., 2014)
 #
 # Everything that differs between them is declared in ONE file,
@@ -98,12 +98,12 @@ require_defense() {
         rule
         echo "  No defense is selected on this branch ($(current_branch))."
         echo
-        echo "  This branch holds the shared tooling and documentation only."
+        echo "  This branch holds the shared tooling and documentation; it is not a defense branch."
         echo "  Pick a defense to work on:"
         echo
         echo "      ./tools/olsr-research.sh use trust     # TRUST-OLSR     (Adnane et al., 2013)"
         echo "      ./tools/olsr-research.sh use fpnt      # FPNT-OLSR      (Tan et al., 2015)"
-        echo "      ./tools/olsr-research.sh use dcfm      # DCFM-OLSR      (Schweitzer et al., 2024)"
+        echo "      ./tools/olsr-research.sh use dcfm      # DCFM-OLSR      (Schweitzer et al., 2025)"
         echo "      ./tools/olsr-research.sh use watchdog  # Watchdog-OLSR  (Baiad et al., 2014)"
         echo
         rule
@@ -151,8 +151,8 @@ tree_is_clean() { [[ -z "$(git -C "$REPO_ROOT" status --porcelain)" ]]; }
 # paths, switching branches leaves the stub pointing at a file that no longer
 # exists, and every harness that includes ns3/olsr-module.h fails to compile.
 # That is exactly what happened on a fresh clone: trust-defense once installed
-# model/defense/olsr-repositories.h, the other three branches install
-# model/olsr-repositories.h, and "use trust" followed by any other defense broke
+# model/defense/olsr-repositories.h (master still does), the other three
+# branches install model/olsr-repositories.h, and "use trust" followed by any other defense broke
 # the build.
 #
 # A stub whose target is missing can never be included successfully, so
@@ -183,7 +183,7 @@ cmd_doctor() {
     branch="$(current_branch)"
 
     rule
-    echo "  OLSR trust-defense research -- environment check"
+    echo "  OLSR defense research -- environment check"
     rule
     info "repository : $REPO_ROOT"
     info "branch     : $branch"
@@ -481,7 +481,7 @@ cmd_smoke() {
 # This is the reproduction path for the datasets described in docs/DATASETS.md.
 # It runs the current branch's defense only; run it once per branch. Seed
 # ranges come from the manifest and are disjoint per batch by construction, so
-# the two defenses' datasets stay independent.
+# the four defenses' datasets stay independent.
 cmd_batch() {
     load_manifest
     require_defense
@@ -586,7 +586,7 @@ cmd_batch() {
 # =============================================================================
 cmd_help() {
     cat <<'EOF'
-olsr-research.sh -- one entry point for the OLSR trust-defense research.
+olsr-research.sh -- one entry point for the OLSR defense research.
 
 USAGE
     ./tools/olsr-research.sh <command> [options]
