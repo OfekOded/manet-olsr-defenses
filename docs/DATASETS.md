@@ -1,10 +1,14 @@
 # Generated datasets
 
-Datasets are **not stored in git** — they run to ~150 MB of CSV plus tens of
-thousands of per-attempt log files. This page is the manifest: what was
-generated, under exactly which configuration, and the command that regenerates
-it. Eight batches were generated for TRUST and FPNT; two superseded TRUST batches
-were later deleted, so six remain.
+Datasets are **not stored in this repository** — they run to ~150 MB of CSV plus
+tens of thousands of per-attempt log files. Their inputs (the CSVs and provenance
+sidecars, without the logs) are committed to the ML repository,
+[`hananelk26/ML-for-NS3`](https://github.com/hananelk26/ML-for-NS3), under
+`defense_ml/defense_ml_project/dataset_final/`; the tables below give the directory
+and registry key of each. This page is the manifest: what was generated, under
+exactly which configuration, and the command that regenerates it. Eight batches
+were generated for TRUST and FPNT; two superseded TRUST batches were later deleted
+here, so six remain.
 
 All eight batches completed (`STATUS: ALL BATCHES DONE`,
 `BOTH MIXED BATCHES DONE`, `TRUST V2 ALL DONE`).
@@ -14,23 +18,27 @@ Schema `header_version=8`, harness `3.0.0`, collector schema v6
 comparable. See [SCHEMA.md](SCHEMA.md).
 
 **Coverage is uneven across the four defenses.** TRUST and FPNT have full
-batches; DCFM and Watchdog have none yet — their code produces exactly the same
-schema (verified: all four binaries emit an identical 22-column header) but no
-full run has been made here. See
-[What is missing](#what-is-missing) below for the commands.
+batches generated from their branches here. The DCFM and Watchdog LISTENER-17
+data was generated in the partner's original repository before the import (see
+[What is missing](#what-is-missing)); their code here produces exactly the same
+schema (verified: all four binaries emit an identical 22-column header), but no
+full batch has been generated from these branches yet.
 
 ## The eight batches
 
-| Batch | Defense | Branch | Mobility | Window order | Start seed | Accepted | Feature rows |
-|---|---|---|---|---|---|---|---|
-| `fpnt_static` | FPNT | `fpnt-defense` | no | canonical | 1 | 2005 | 8020 |
-| `fpnt_mobile` | FPNT | `fpnt-defense` | yes | canonical | 2 000 001 | 2010 | 8040 |
-| `fpnt_static_mixed` | FPNT | `fpnt-defense` | no | randomized | 10 000 001 | 2010 | 8040 |
-| `fpnt_mobile_mixed` | FPNT | `fpnt-defense` | yes | randomized | 12 000 001 | 2009 | 8036 |
-| `trust_static` ⚠ *(deleted)* | TRUST | `trust-defense` | no | canonical | 4 000 001 | 2010 | 8040 |
-| `trust_mobile` ⚠ *(deleted)* | TRUST | `trust-defense` | yes | canonical | 6 000 001 | 2009 | 8036 |
-| **`trust_static_v2`** | TRUST | `trust-defense` | no | canonical | 4 000 001 | 2012 | 8048 |
-| **`trust_mobile_v2`** | TRUST | `trust-defense` | yes | canonical | 6 000 001 | 2009 | 8036 |
+| Batch | Defense | Branch | Mobility | Window order | Start seed | Accepted | Feature rows | In the ML repository |
+|---|---|---|---|---|---|---|---|---|
+| `fpnt_static` | FPNT | `fpnt-defense` | no | canonical | 1 | 2005 | 8020 | `fpnt_17/` · `fpnt17` |
+| `fpnt_mobile` | FPNT | `fpnt-defense` | yes | canonical | 2 000 001 | 2010 | 8040 | `fpnt_17/` · `fpnt17` |
+| `fpnt_static_mixed` | FPNT | `fpnt-defense` | no | randomized | 10 000 001 | 2010 | 8040 | `fpnt_17_mixed/` · `fpnt17mixed` |
+| `fpnt_mobile_mixed` | FPNT | `fpnt-defense` | yes | randomized | 12 000 001 | 2009 | 8036 | `fpnt_17_mixed/` · `fpnt17mixed` |
+| `trust_static` ⚠ *(deleted)* | TRUST | `trust-defense` | no | canonical | 4 000 001 | 2010 | 8040 | `trust_17/` · `trust17` |
+| `trust_mobile` ⚠ *(deleted)* | TRUST | `trust-defense` | yes | canonical | 6 000 001 | 2009 | 8036 | `trust_17/` · `trust17` |
+| **`trust_static_v2`** | TRUST | `trust-defense` | no | canonical | 4 000 001 | 2012 | 8048 | `trust_17_full/` · `trust17full` |
+| **`trust_mobile_v2`** | TRUST | `trust-defense` | yes | canonical | 6 000 001 | 2009 | 8036 | `trust_17_full/` · `trust17full` |
+
+The last column is the directory under `dataset_final/` and the registry key the
+ML pipeline's `--defense` flag takes.
 
 All batches: `-n 2000`, `--max-attempts 8000`, `--direct`, 50 nodes,
 750×1000 m grid, one attacker (node 2), `spoofCount=5`, 190 m radio range.
@@ -55,9 +63,10 @@ and provenance sidecars — not their 41 MB of per-attempt logs — were kept in
 `olsr-batch/out/SUPERSEDED-trust-v1-csv-only.tar.gz` (1.8 MB), since they remain
 the only record of the forward-monitor-alone ablation.
 
-Nothing is lost even if that archive goes: the configuration is fully recorded
-here, so the pair is reproducible with the command at the end of
-[Regenerating](#regenerating) below.
+Nothing is lost even if that archive goes: the same CSVs are committed to the ML
+repository as `trust17`, and the configuration is fully recorded here, so the
+pair is reproducible with the command at the end of [Regenerating](#regenerating)
+below.
 
 This trap is now closed: `tools/defense.manifest` on `trust-defense` carries
 those flags and `tools/olsr-research.sh` applies them automatically.
@@ -96,7 +105,10 @@ mistrust_permanent=0            mistrust_duration_s=60
 **TRUST v1** (`trust_static`, `trust_mobile`): identical except
 `enable_consistency_rules=0` and `enable_alert_distribution=0`.
 
-Generated at commit `f9a2e9702` on `trust-defense`.
+The TRUST v2 batches were generated at `trust-defense` commit `f9a2e9702`, as
+their `defense_flags.txt` records. The FPNT batches' runner predated commit
+recording; they ran on 2026-08-30 (canonical) and 2026-09-03 (mixed), when the tip
+of `fpnt-defense` was `cae7c4c69` on both dates.
 
 ## Regenerating
 
@@ -147,10 +159,23 @@ directly, which applies no defense flags of its own:
 
 ## What is missing
 
-No full LISTENER-17 batches exist for **DCFM** or **Watchdog**. Their harnesses
-were imported working and smoke-tested (5 runs each, correct 22-column output,
-both defense states exercised), but generating the real batches is hours of
-compute per batch and was not done.
+No full LISTENER-17 batches have been generated **from the `dcfm-defense` and
+`watchdog-defense` branches**. Their harnesses were imported working and
+smoke-tested (5 runs each, correct 22-column output, both defense states
+exercised), but generating the real batches is hours of compute per batch and was
+not done here.
+
+The DCFM and Watchdog data the report uses came from the partner's original
+repository, before the import (its final state is the tag
+`manet-olsr-project-2026-09-03`; see [PARTNER-IMPORT.md](PARTNER-IMPORT.md)):
+
+| Batch | Harness | Start seed (static / mobile) | Where it is |
+|---|---|---|---|
+| DCFM `Pilot2k` | `olsr-dcfm-eval-mitigation`, `HARNESS_VERSION 3.0.0`, `HEADER_VERSION 8` | 1 / 1 | committed to the ML repository as `dcfm/Pilot2k/` · `dcfm17` |
+| Watchdog `Pilot2k` | `olsr-watchdog-eval-mitigation` | — | the partner's machine only (`watchdog17`) |
+
+Those seeds predate the reserved ranges below, which is why regenerating them from
+these branches means passing `--start-seed 1` rather than using the manifest.
 
 To produce them, matching the seed ranges already reserved in each branch's
 `tools/defense.manifest`:
@@ -187,7 +212,7 @@ the project. Both are git-ignored and **neither should be used**:
 
 | Directory | Size | Why not |
 |---|---|---|
-| `dataset_final/` | ~444 MB | FPNT only, June 2026, pre-LISTENER-17 schema. The name is misleading — it is neither final nor complete. |
+| `dataset_final/` | ~444 MB | FPNT only, June 2026, pre-LISTENER-17 schema. The name is misleading — it is neither final nor complete. Not to be confused with the ML repository's `dataset_final/`, which holds the committed inputs of every current batch (and an archived copy of this old FPNT data as its Campaign 1 `fpnt/` arm). |
 | `simulations/` | ~224 MB | Six batches, May–August 2026, older schema (128- and 69-column collectors). Not comparable to anything current. |
 
-They are safe to delete. Nothing in this repository reads them.
+They are safe to delete from a working tree. Nothing in this repository reads them.

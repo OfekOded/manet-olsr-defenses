@@ -106,7 +106,7 @@ Measured on the development machine (19 cores), from an already-built tree:
 | `use watchdog` | ~2.5 min |
 
 Switching to TRUST is the slow one when the build cache is cold: it adds a whole
-module directory (`src/olsr/model/defense/`, eight translation units) on top of
+module directory (`src/olsr/model/defense/`, five translation units) on top of
 `olsr-trust-defense.cc`, where the other three add one or two files. Once each
 branch has been built once the cache is warm and every switch settles around two
 minutes. Budget for the first one rather than assuming the command hung.
@@ -374,10 +374,10 @@ The three suites that exercise this module are `routing-olsr-regression`
 | `watchdog-defense` | **CRASH** | PASS | PASS |
 
 The two crashes are one known line each — see
-[HANDOFF.md](HANDOFF.md#known-issues), issue 0.
+[HANDOFF.md](HANDOFF.md#known-issues), issue 1.
 
 This is worth doing after any change to `src/olsr/`. It is how the
-`Config::Connect` fault described in [HANDOFF.md](HANDOFF.md#provenance-of-the-tooling)
+`Config::Connect` fault described in [HANDOFF.md](HANDOFF.md#verified-at-handoff)
 was found: `routing-olsr-regression` crashed outright on `trust-defense`,
 and because the project only ever configured with `--enable-examples`, nothing
 ever ran it.

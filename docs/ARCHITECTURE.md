@@ -24,9 +24,9 @@ run is measured across four windows covering defense × attack (see
 [RUNNING.md](RUNNING.md#what-one-run-actually-does)); the result is a labelled
 dataset (see [SCHEMA.md](SCHEMA.md)) plus per-run detection metrics.
 
-The attacker lives in `src/olsr/model/olsr-routing-protocol.cc` behind twenty
-`// SECURITY RESEARCH EXTENSION:` banners — grep for that string to find every
-place stock OLSR was touched. Attacker behaviour is identical on all four
+The attacker lives in `src/olsr/model/olsr-routing-protocol.cc` behind
+`// SECURITY RESEARCH EXTENSION:` banners (18 to 20 in the `.cc`, depending on the
+branch) — grep for that string to find every place stock OLSR was touched. Attacker behaviour is identical on all four
 defense branches — `BuildSpoofTargets` and the rest of the attack code are
 byte-identical across every routing-protocol variant — which is what makes the
 four defenses comparable.
@@ -118,10 +118,12 @@ implements the paper's principle that **trust routing never removes a node from
 the topology — it only makes paths through it unattractive** (§2.3). This is a
 real behavioural difference from TRUST, which excludes mistrusted nodes.
 
-Thirteen ns-3 attributes expose the tunables. Four of them are explicitly
-marked *"NOT in the paper"* (`StickyEvidence`, `DemoteUnverifiedNodes`,
-`RollbackOnMacFailure`, and the `MaliciousThreshold` accessor), all defaulting
-to the paper's behaviour. The file states the rule it follows:
+Twelve ns-3 attributes expose the tunables. Four sit in a block headed "Beyond
+the paper": `StickyEvidence`, `DemoteUnverifiedNodes` and
+`RollbackOnMacFailure` are marked *"NOT in the paper"* and default off, so the
+defaults reproduce the paper; `MonitorTcForwarding` *is* in the paper (§5.1.B)
+but also defaults off, because its obligation has to be inferred — see
+[HANDOFF.md](HANDOFF.md#suggested-next-steps). The file states the rule it follows:
 
 > Deviations from the paper are never silent: every behavior this class adds
 > beyond the paper's text sits behind an ns-3 attribute whose default value
@@ -132,9 +134,10 @@ to the paper's behaviour. The file states the rule it follows:
 
 ## DCFM-OLSR (`dcfm-defense`)
 
-Schweitzer et al., *Achieving MANET protection without the use of superfluous
-fictitious nodes*, Computer Communications (2024). Implemented by Hananel
-Kahana; see [PARTNER-IMPORT.md](PARTNER-IMPORT.md).
+Schweitzer, Cohen, Hirst, Dvir & Stulman, *Achieving MANET protection without the
+use of superfluous fictitious nodes*, Computer Communications 229 (2025), 107978.
+Implemented by Hananel Kadron as a port of the supervisor's reference
+implementation; see [PARTNER-IMPORT.md](PARTNER-IMPORT.md).
 
 ```
 src/olsr/model/olsr-defense-gcop.{h,cc}    class OlsrDefenseGcop, ~1040 lines
@@ -142,19 +145,26 @@ src/olsr/model/olsr-defense-gcop.{h,cc}    class OlsrDefenseGcop, ~1040 lines
 
 > **Naming.** The class and files say **GCOP**; the branch, manifest, harness and
 > every `defense_variant=DCFM-OLSR` record say **DCFM**. Same defense. GCOP is
-> the fictitious-node placement algorithm at its core. Nothing was renamed
-> because the TypeId string `ns3::olsr::OlsrDefenseGcop` is what the harness
-> looks up.
+> the paper's fictitious-node placement algorithm, which gave the class its
+> name. Nothing was renamed because the TypeId string
+> `ns3::olsr::OlsrDefenseGcop` is what the harness looks up.
 
-Three mechanisms:
+The mechanisms:
 
 - **C-Rules** (paper §3.5.1) — three contradiction tests over received HELLO/TC,
   plus a Rule-1 "bait" extension.
-- **GCOP** (Algorithm 1, §5.1) — a depth-2 BFS that decides *whether* this node
-  needs to advertise a fictitious neighbour at all. The point of the paper is
-  avoiding superfluous fictitious nodes, so most nodes decide no.
-- **GCOHP** (Algorithm 2, §5.2) — hexagon-topology detection, used as a fallback
-  when GCOP cannot decide.
+- **GCOHP** (Algorithm 2, §5.2) — hexagon-topology detection, which decides
+  *whether* this node needs to advertise a fictitious neighbour at all. The point
+  of the paper is avoiding superfluous fictitious nodes, so most nodes decide no.
+  **This is the only decision on the live path.**
+- **GCOP** (Algorithm 1, §5.1) — the depth-2 BFS colouring. It is implemented
+  (`RunGcopAlgorithm`) but deliberately not consulted: the port matches the
+  supervisor's reference implementation, whose live decision is the hexagon test
+  alone, with its GCOP commented out. `RequiresFictitiousNode()` in
+  `olsr-defense-gcop.cc` says so, and every DCFM batch records
+  `fictitious_decision=gcohp_only` in `defense_params.txt`. The comment block in
+  `olsr-defense-gcop.h` still describes GCOHP as a fallback; the `.cc` is
+  authoritative.
 
 Only two attributes: `Enabled` (default false — the harness owns this toggle,
 see below) and `UseFictitiousNodes` (default true; setting it false degrades the
@@ -170,8 +180,10 @@ that doing so was the strongest ML leakage signal in earlier revisions.
 ## Watchdog-OLSR (`watchdog-defense`)
 
 Baiad, Otrok, Muhaidat & Bentahar, *Cooperative Cross Layer Detection for
-Blackhole Attack in VANET-OLSR*, IEEE IWCMC (2014). Implemented by Hananel
-Kahana.
+Blackhole Attack in VANET-OLSR*, IEEE IWCMC (2014), with its journal extension —
+Baiad, Alhussein, Otrok & Muhaidat, Vehicular Communications 5 (2016), 9–17 —
+which supplies the detection-accuracy formula all four harnesses report
+("Baiad et al. 2016, eq. 16"). Implemented by Hananel Kadron.
 
 ```
 src/olsr/model/olsr-watchdog-defense.{h,cc}   class OlsrWatchdogDefense, ~1590 lines
@@ -265,8 +277,9 @@ comparability of the existing datasets at risk for no scientific gain. The
 branches are the record of what was actually run. What the tooling does instead
 is make switching between them a single command that cannot be misconfigured.
 
-`master` holds the shared tooling and documentation and no defense. `tools/` and
-`docs/` are byte-identical on all four defense branches; only
+`master` holds the shared tooling and documentation, plus an early TRUST defense
+that predates the branch split — it is not a branch to run experiments on.
+`tools/`, `docs/` and `README.md` are byte-identical on all five branches; only
 `tools/defense.manifest` differs. Note that `master` is still ns-3 `3-dev` while
 all four defense branches are `3.47` — see
 [HANDOFF.md](HANDOFF.md#known-issues).
@@ -274,7 +287,7 @@ all four defense branches are `3.47` — see
 ## The harness
 
 `scratch/olsr-{trust,fpnt,dcfm,watchdog}-eval-mitigation.cc` are the evaluation
-programs — one per branch, 2700-2850 lines each, and largely copies of one
+programs — one per branch, roughly 2,700 to 2,900 lines each, and largely copies of one
 another (all four are `HARNESS_VERSION 3.0.0`, `HEADER_VERSION 8`). They build the
 topology, install the attacker and the defense, drive the four measurement
 windows, and emit the CSVs.
