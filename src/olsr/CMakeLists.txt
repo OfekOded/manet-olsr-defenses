@@ -7,7 +7,7 @@ build_lib(
     model/olsr-state.cc
     # --- Security research extension ---
     # The defense-strategy interface plus the ONE defense this branch carries:
-    # DCFM / GCOP (Schweitzer et al., Computer Communications 2024).
+    # DCFM / GCOP (Schweitzer et al., Computer Communications 229, 2025).
     # Each defense lives on its own branch -- see docs/ARCHITECTURE.md.
     model/olsr-defense-strategy.cc
     model/olsr-defense-gcop.cc

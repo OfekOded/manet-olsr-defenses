@@ -34,7 +34,7 @@
 DEFENSE_ID=dcfm
 DEFENSE_NAME="DCFM-OLSR"
 DEFENSE_BRANCH=dcfm-defense
-PAPER="Schweitzer et al. -- Achieving MANET protection without the use of superfluous fictitious nodes, Computer Communications (2024)"
+PAPER="Schweitzer et al. -- Achieving MANET protection without the use of superfluous fictitious nodes, Computer Communications 229 (2025)"
 SCRATCH_TARGET=olsr-dcfm-eval-mitigation
 
 # Deliberately empty, and worth stating rather than leaving implicit.
@@ -50,12 +50,14 @@ SCRATCH_TARGET=olsr-dcfm-eval-mitigation
 # Do not take this on trust. Every per-attempt log in logs/ prints
 # "Defense ACTIVATED" / "Defense DEACTIVATED" at each window transition, and
 # windows_labels.csv records defense_enabled for every window. (For this
-# defense defense_params.txt records only the variant and version numbers.)
+# defense defense_params.txt records the reference-port configuration, e.g.
+# detection_model and fictitious_decision=gcohp_only, but not an Enabled flag.)
 #
 # NAMING: the class and its files say GCOP (src/olsr/model/olsr-defense-gcop.*,
 # class OlsrDefenseGcop, TypeId ns3::olsr::OlsrDefenseGcop) while everything
-# user-facing says DCFM. Same defense -- GCOP is the fictitious-node placement
-# algorithm at its core. See docs/ARCHITECTURE.md.
+# user-facing says DCFM. Same defense -- GCOP is the paper's fictitious-node
+# placement algorithm, which named the class; the live decision is GCOHP only.
+# See docs/ARCHITECTURE.md.
 DEFENSE_FLAGS=""
 
 # Disjoint from trust (4M/6M), fpnt (1/2M) and watchdog (24M/26M).
